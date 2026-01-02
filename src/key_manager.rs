@@ -1,0 +1,432 @@
+// Key Manager module - key derivation, generation, and management
+
+use crate::error::{CryptoError, Result};
+use ring::pbkdf2;
+use ring::rand::{SecureRandom, SystemRandom};
+use argon2::{Argon2, PasswordHasher};
+use argon2::password_hash::SaltString;
+use std::num::NonZeroU32;
+use std::ops::{Deref, DerefMut};
+use zeroize::Zeroize;
+
+/// SecureBytes is a wrapper around Vec<u8> that zeros memory on drop
+/// This ensures sensitive key material is cleared from memory when no longer needed
+#[derive(Clone)]
+pub struct SecureBytes {
+    data: Vec<u8>,
+}
+
+impl SecureBytes {
+    /// Create a new SecureBytes from a Vec<u8>
+    pub fn new(data: Vec<u8>) -> Self {
+        Self { data }
+    }
+
+    /// Create a new SecureBytes with a specific capacity
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            data: Vec::with_capacity(capacity),
+        }
+    }
+
+    /// Create a new SecureBytes filled with zeros
+    pub fn zeros(len: usize) -> Self {
+        Self {
+            data: vec![0u8; len],
+        }
+    }
+
+    /// Get the length of the data
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    /// Check if the data is empty
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    /// Convert to a Vec<u8>, consuming self
+    pub fn into_vec(mut self) -> Vec<u8> {
+        // Take ownership of the inner vec without zeroing
+        std::mem::take(&mut self.data)
+    }
+
+    /// Get a reference to the inner data as a slice
+    pub fn as_slice(&self) -> &[u8] {
+        &self.data
+    }
+
+    /// Get a mutable reference to the inner data as a slice
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        &mut self.data
+    }
+}
+
+impl Deref for SecureBytes {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl DerefMut for SecureBytes {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}
+
+impl Drop for SecureBytes {
+    fn drop(&mut self) {
+        // Zero the memory before deallocation
+        self.data.zeroize();
+    }
+}
+
+impl From<Vec<u8>> for SecureBytes {
+    fn from(data: Vec<u8>) -> Self {
+        Self::new(data)
+    }
+}
+
+impl From<&[u8]> for SecureBytes {
+    fn from(data: &[u8]) -> Self {
+        Self::new(data.to_vec())
+    }
+}
+
+impl AsRef<[u8]> for SecureBytes {
+    fn as_ref(&self) -> &[u8] {
+        &self.data
+    }
+}
+
+impl AsMut<[u8]> for SecureBytes {
+    fn as_mut(&mut self) -> &mut [u8] {
+        &mut self.data
+    }
+}
+
+/// SecureString is a wrapper around String that zeros memory on drop
+/// This ensures sensitive password/passphrase material is cleared from memory when no longer needed
+#[derive(Clone)]
+pub struct SecureString {
+    data: String,
+}
+
+impl SecureString {
+    /// Create a new SecureString from a String
+    pub fn new(data: String) -> Self {
+        Self { data }
+    }
+
+    /// Create a new empty SecureString
+    pub fn empty() -> Self {
+        Self {
+            data: String::new(),
+        }
+    }
+
+    /// Create a new SecureString with a specific capacity
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            data: String::with_capacity(capacity),
+        }
+    }
+
+    /// Get the length of the string in bytes
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    /// Check if the string is empty
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+
+    /// Convert to a String, consuming self
+    pub fn into_string(mut self) -> String {
+        // Take ownership of the inner string without zeroing
+        std::mem::take(&mut self.data)
+    }
+
+    /// Get a reference to the inner string as a str
+    pub fn as_str(&self) -> &str {
+        &self.data
+    }
+
+    /// Convert to bytes for cryptographic operations
+    pub fn as_bytes(&self) -> &[u8] {
+        self.data.as_bytes()
+    }
+}
+
+impl Deref for SecureString {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl Drop for SecureString {
+    fn drop(&mut self) {
+        // Zero the memory before deallocation
+        // SAFETY: We're zeroing the string's bytes, which is safe
+        // The string will be dropped immediately after
+        unsafe {
+            self.data.as_bytes_mut().zeroize();
+        }
+    }
+}
+
+impl From<String> for SecureString {
+    fn from(data: String) -> Self {
+        Self::new(data)
+    }
+}
+
+impl From<&str> for SecureString {
+    fn from(data: &str) -> Self {
+        Self::new(data.to_string())
+    }
+}
+
+impl AsRef<str> for SecureString {
+    fn as_ref(&self) -> &str {
+        &self.data
+    }
+}
+
+
+/// Key Derivation Function algorithms
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KdfAlgorithm {
+    Pbkdf2Sha256,
+    Argon2id,
+}
+
+/// Algorithm types for key generation
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Algorithm {
+    Aes256Gcm,
+    Aes256Cbc,
+    ChaCha20Poly1305,
+    RsaOaep2048,
+    RsaOaep4096,
+    EciesP256,
+}
+
+impl Algorithm {
+    /// Get the key size in bytes for symmetric algorithms
+    pub fn key_size(&self) -> usize {
+        match self {
+            Algorithm::Aes256Gcm => 32,
+            Algorithm::Aes256Cbc => 32,
+            Algorithm::ChaCha20Poly1305 => 32,
+            Algorithm::RsaOaep2048 => 0, // Asymmetric - no fixed key size
+            Algorithm::RsaOaep4096 => 0, // Asymmetric - no fixed key size
+            Algorithm::EciesP256 => 0,   // Asymmetric - no fixed key size
+        }
+    }
+}
+
+/// Asymmetric algorithm types for key pair generation
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AsymmetricAlgorithm {
+    RsaOaep2048,
+    RsaOaep4096,
+    EciesP256,
+}
+
+/// Key pair structure for asymmetric algorithms
+pub struct KeyPair {
+    pub public_key: Vec<u8>,
+    pub private_key: SecureBytes,
+}
+
+/// Derive a key from a password using PBKDF2-SHA256
+///
+/// # Arguments
+/// * `password` - The password to derive from
+/// * `salt` - The salt (should be at least 16 bytes, preferably 32)
+/// * `iterations` - Number of iterations (minimum 100,000 recommended)
+/// * `output_length` - Length of the derived key in bytes
+///
+/// # Returns
+/// A SecureBytes containing the derived key
+pub fn derive_key_pbkdf2(
+    password: &SecureString,
+    salt: &[u8],
+    iterations: u32,
+    output_length: usize,
+) -> Result<SecureBytes> {
+    let mut key = SecureBytes::zeros(output_length);
+    
+    let iterations = NonZeroU32::new(iterations)
+        .ok_or(CryptoError::KeyDerivationFailed)?;
+    
+    pbkdf2::derive(
+        pbkdf2::PBKDF2_HMAC_SHA256,
+        iterations,
+        salt,
+        password.as_bytes(),
+        key.as_mut_slice(),
+    );
+    
+    Ok(key)
+}
+
+/// Derive a key from a password using Argon2id
+///
+/// # Arguments
+/// * `password` - The password to derive from
+/// * `salt` - The salt (should be at least 16 bytes, preferably 32)
+/// * `memory_cost` - Memory cost in KiB (default: 19456 = 19 MiB)
+/// * `time_cost` - Time cost / iterations (default: 2)
+/// * `output_length` - Length of the derived key in bytes
+///
+/// # Returns
+/// A SecureBytes containing the derived key
+pub fn derive_key_argon2id(
+    password: &SecureString,
+    salt: &[u8],
+    memory_cost: u32,
+    time_cost: u32,
+    output_length: usize,
+) -> Result<SecureBytes> {
+    // Create Argon2 context with specified parameters
+    let argon2 = Argon2::new(
+        argon2::Algorithm::Argon2id,
+        argon2::Version::V0x13,
+        argon2::Params::new(memory_cost, time_cost, 1, Some(output_length))
+            .map_err(|_| CryptoError::KeyDerivationFailed)?,
+    );
+    
+    // Convert salt to SaltString format
+    let salt_string = SaltString::encode_b64(salt)
+        .map_err(|_| CryptoError::KeyDerivationFailed)?;
+    
+    // Derive the key
+    let password_hash = argon2
+        .hash_password(password.as_bytes(), &salt_string)
+        .map_err(|_| CryptoError::KeyDerivationFailed)?;
+    
+    // Extract the hash bytes
+    let hash_bytes = password_hash
+        .hash
+        .ok_or(CryptoError::KeyDerivationFailed)?;
+    
+    // Convert to SecureBytes
+    let key = SecureBytes::from(hash_bytes.as_bytes());
+    
+    Ok(key)
+}
+
+
+/// Generate a cryptographically secure random salt
+///
+/// # Returns
+/// A 32-byte array containing the random salt
+pub fn generate_salt() -> Result<[u8; 32]> {
+    let rng = SystemRandom::new();
+    let mut salt = [0u8; 32];
+    
+    rng.fill(&mut salt)
+        .map_err(|_| CryptoError::KeyGenerationFailed)?;
+    
+    Ok(salt)
+}
+
+/// Generate a symmetric key of the specified length
+///
+/// # Arguments
+/// * `algorithm` - The algorithm to generate a key for
+///
+/// # Returns
+/// A SecureBytes containing the random key
+pub fn generate_symmetric_key(algorithm: Algorithm) -> Result<SecureBytes> {
+    let key_size = algorithm.key_size();
+    
+    if key_size == 0 {
+        return Err(CryptoError::InvalidArguments(
+            "Cannot generate symmetric key for asymmetric algorithm".to_string()
+        ));
+    }
+    
+    let rng = SystemRandom::new();
+    let mut key = SecureBytes::zeros(key_size);
+    
+    rng.fill(key.as_mut_slice())
+        .map_err(|_| CryptoError::KeyGenerationFailed)?;
+    
+    Ok(key)
+}
+
+/// Generate an asymmetric key pair
+///
+/// # Arguments
+/// * `algorithm` - The asymmetric algorithm to generate keys for
+///
+/// # Returns
+/// A KeyPair containing the public and private keys
+pub fn generate_key_pair(algorithm: AsymmetricAlgorithm) -> Result<KeyPair> {
+    match algorithm {
+        AsymmetricAlgorithm::RsaOaep2048 => generate_rsa_key_pair(2048),
+        AsymmetricAlgorithm::RsaOaep4096 => generate_rsa_key_pair(4096),
+        AsymmetricAlgorithm::EciesP256 => generate_ecies_key_pair(),
+    }
+}
+
+/// Generate an RSA key pair
+fn generate_rsa_key_pair(bits: usize) -> Result<KeyPair> {
+    use rsa::{RsaPrivateKey, RsaPublicKey};
+    use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey};
+    
+    let mut rng = rand::thread_rng();
+    
+    let private_key = RsaPrivateKey::new(&mut rng, bits)
+        .map_err(|_| CryptoError::KeyGenerationFailed)?;
+    
+    let public_key = RsaPublicKey::from(&private_key);
+    
+    // Encode keys to DER format
+    let private_der = private_key
+        .to_pkcs8_der()
+        .map_err(|_| CryptoError::KeyGenerationFailed)?;
+    
+    let public_der = public_key
+        .to_public_key_der()
+        .map_err(|_| CryptoError::KeyGenerationFailed)?;
+    
+    Ok(KeyPair {
+        public_key: public_der.as_bytes().to_vec(),
+        private_key: SecureBytes::from(private_der.as_bytes()),
+    })
+}
+
+/// Generate an ECIES P-256 key pair
+fn generate_ecies_key_pair() -> Result<KeyPair> {
+    use p256::SecretKey;
+    use p256::pkcs8::{EncodePrivateKey, EncodePublicKey};
+    
+    let mut rng = rand::thread_rng();
+    
+    let private_key = SecretKey::random(&mut rng);
+    let public_key = private_key.public_key();
+    
+    // Encode keys to DER format
+    let private_der = private_key
+        .to_pkcs8_der()
+        .map_err(|_| CryptoError::KeyGenerationFailed)?;
+    
+    let public_der = public_key
+        .to_public_key_der()
+        .map_err(|_| CryptoError::KeyGenerationFailed)?;
+    
+    Ok(KeyPair {
+        public_key: public_der.as_bytes().to_vec(),
+        private_key: SecureBytes::from(private_der.as_bytes()),
+    })
+}

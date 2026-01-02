@@ -1,0 +1,12 @@
+# Proptest configuration for crypto-cli-tool
+# Ensures minimum 100 iterations for all property-based tests
+
+[default]
+# Minimum number of test cases to run
+cases = 100
+
+# Maximum number of shrink iterations
+max_shrink_iters = 1000
+
+# Timeout for each test case (in milliseconds)
+timeout = 5000
