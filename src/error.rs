@@ -1,27 +1,39 @@
 // Error types and Result aliases
+// 错误类型和 Result 别名
 //
 // SECURITY NOTE: All error messages are carefully designed to avoid leaking
 // sensitive information such as:
+// 安全注意：所有错误消息都经过精心设计，以避免泄露敏感信息，例如：
 // - Key material (encryption keys, derived keys, key bytes)
+//   密钥材料（加密密钥、派生密钥、密钥字节）
 // - Passwords or passphrases
+//   密码或口令
 // - Plaintext data or file contents
+//   明文数据或文件内容
 // - Internal cryptographic state
+//   内部加密状态
 //
 // Error messages only include:
+// 错误消息仅包括：
 // - File paths (which are already known to the user)
+//   文件路径（用户已知）
 // - Operation types (encrypt, decrypt, etc.)
+//   操作类型（加密、解密等）
 // - Generic failure reasons (authentication failed, corrupted header, etc.)
+//   通用失败原因（认证失败、头部损坏等）
 //
 // When adding new error variants, ensure they follow these security guidelines.
+// 添加新的错误变体时，请确保遵循这些安全准则。
 
 use std::fmt;
 use std::io;
 use std::path::PathBuf;
 
 /// Main error type for the cryptographic CLI tool
+/// 加密 CLI 工具的主要错误类型
 #[derive(Debug)]
 pub enum CryptoError {
-    // Cryptographic errors
+    // Cryptographic errors / 加密错误
     EncryptionFailed(String),
     DecryptionFailed(String),
     AuthenticationFailed,
@@ -30,7 +42,7 @@ pub enum CryptoError {
     InvalidKeySize { expected: usize, got: usize },
     InvalidAlgorithm(String),
     
-    // File I/O errors
+    // File I/O errors / 文件 I/O 错误
     FileNotFound(PathBuf),
     FileReadError(PathBuf, io::Error),
     FileWriteError(PathBuf, io::Error),
@@ -40,24 +52,24 @@ pub enum CryptoError {
     NotAFile(PathBuf),
     NotADirectory(PathBuf),
     
-    // Format errors
+    // Format errors / 格式错误
     InvalidFileFormat,
     UnsupportedVersion(u16),
     CorruptedHeader,
     InvalidMetadata,
     
-    // Key management errors
+    // Key management errors / 密钥管理错误
     KeyDerivationFailed,
     InvalidPassword,
     KeyGenerationFailed,
     InvalidIterationCount { min: u32, got: u32 },
     
-    // User input errors
+    // User input errors / 用户输入错误
     InvalidArguments(String),
     MissingRequiredArgument(String),
     InvalidPath(PathBuf),
     
-    // System errors
+    // System errors / 系统错误
     InsufficientMemory,
     SystemError(String),
     IoError(io::Error),
@@ -112,6 +124,7 @@ impl std::error::Error for CryptoError {}
 
 impl CryptoError {
     /// Convert an io::Error to CryptoError with file path context
+    /// 将 io::Error 转换为带有文件路径上下文的 CryptoError
     pub fn from_io_error(err: io::Error, path: PathBuf, operation: &str) -> Self {
         match err.kind() {
             io::ErrorKind::NotFound => CryptoError::FileNotFound(path),
@@ -130,14 +143,18 @@ impl CryptoError {
     }
     
     /// Sanitize a string to ensure it doesn't contain sensitive data
+    /// 清理字符串以确保不包含敏感数据
     /// 
     /// This function is used to sanitize error messages and debug output
     /// to prevent accidental leakage of key material, passwords, or plaintext.
+    /// 此函数用于清理错误消息和调试输出，以防止意外泄露密钥材料、密码或明文。
     /// 
-    /// # Security Note
+    /// # Security Note / 安全注意
     /// All error messages in CryptoError are already sanitized and do not
     /// include sensitive data. This function is provided for additional
     /// sanitization of external error messages or debug output.
+    /// CryptoError 中的所有错误消息都已经过清理，不包含敏感数据。
+    /// 此函数用于对外部错误消息或调试输出进行额外清理。
     pub fn sanitize_message(msg: &str) -> String {
         // For now, we just return the message as-is since our error types
         // are already designed to not include sensitive data.
@@ -148,23 +165,29 @@ impl CryptoError {
 }
 
 /// Result type alias for convenience
+/// 便捷的 Result 类型别名
 pub type Result<T> = std::result::Result<T, CryptoError>;
 
 /// Input validation functions
+/// 输入验证函数
 /// 
 /// These functions validate user inputs to ensure they meet security
 /// and operational requirements before processing.
+/// 这些函数验证用户输入，以确保在处理之前满足安全和操作要求。
 pub mod validation {
     use super::*;
     use std::path::Path;
     
     /// Minimum KDF iteration count for security
+    /// 安全的最小 KDF 迭代次数
     pub const MIN_KDF_ITERATIONS: u32 = 100_000;
     
     /// Maximum reasonable KDF iteration count
+    /// 合理的最大 KDF 迭代次数
     pub const MAX_KDF_ITERATIONS: u32 = 10_000_000;
     
     /// Validate a file path exists and is accessible
+    /// 验证文件路径是否存在且可访问
     pub fn validate_file_path(path: &Path) -> Result<()> {
         if !path.exists() {
             return Err(CryptoError::FileNotFound(path.to_path_buf()));

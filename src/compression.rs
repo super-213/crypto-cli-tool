@@ -1,4 +1,5 @@
 // Compression module - compression and decompression operations
+// 压缩模块 - 压缩和解压缩操作
 
 use crate::error::{CryptoError, Result};
 use flate2::read::{GzDecoder, GzEncoder};
@@ -6,6 +7,7 @@ use flate2::Compression as GzipCompression;
 use std::io::{Read, Write};
 
 /// Compression algorithm selection
+/// 压缩算法选择
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompressionAlgorithm {
     Gzip,
@@ -13,6 +15,7 @@ pub enum CompressionAlgorithm {
 }
 
 /// Compression context with algorithm and level
+/// 带有算法和级别的压缩上下文
 #[derive(Debug, Clone)]
 pub struct CompressionContext {
     pub algorithm: CompressionAlgorithm,
@@ -21,17 +24,20 @@ pub struct CompressionContext {
 
 impl CompressionContext {
     /// Create a new compression context with default level
+    /// 使用默认级别创建新的压缩上下文
     pub fn new(algorithm: CompressionAlgorithm) -> Self {
         let level = match algorithm {
-            CompressionAlgorithm::Gzip => 6, // Default gzip level
-            CompressionAlgorithm::Zstd => 3, // Default zstd level
+            CompressionAlgorithm::Gzip => 6, // Default gzip level / 默认 gzip 级别
+            CompressionAlgorithm::Zstd => 3, // Default zstd level / 默认 zstd 级别
         };
         Self { algorithm, level }
     }
 
     /// Create a new compression context with specific level
+    /// 使用特定级别创建新的压缩上下文
     pub fn with_level(algorithm: CompressionAlgorithm, level: u32) -> Result<Self> {
         // Validate compression level
+        // 验证压缩级别
         match algorithm {
             CompressionAlgorithm::Gzip => {
                 if level < 1 || level > 9 {
@@ -53,6 +59,7 @@ impl CompressionContext {
 }
 
 /// Compress data using the specified algorithm and level
+/// 使用指定的算法和级别压缩数据
 pub fn compress(data: &[u8], context: &CompressionContext) -> Result<Vec<u8>> {
     match context.algorithm {
         CompressionAlgorithm::Gzip => compress_gzip(data, context.level),
@@ -61,6 +68,7 @@ pub fn compress(data: &[u8], context: &CompressionContext) -> Result<Vec<u8>> {
 }
 
 /// Decompress data using the specified algorithm
+/// 使用指定的算法解压缩数据
 pub fn decompress(data: &[u8], algorithm: CompressionAlgorithm) -> Result<Vec<u8>> {
     match algorithm {
         CompressionAlgorithm::Gzip => decompress_gzip(data),
@@ -69,6 +77,7 @@ pub fn decompress(data: &[u8], algorithm: CompressionAlgorithm) -> Result<Vec<u8
 }
 
 /// Compress data using gzip
+/// 使用 gzip 压缩数据
 fn compress_gzip(data: &[u8], level: u32) -> Result<Vec<u8>> {
     let mut encoder = GzEncoder::new(data, GzipCompression::new(level));
     let mut compressed = Vec::new();
@@ -79,6 +88,7 @@ fn compress_gzip(data: &[u8], level: u32) -> Result<Vec<u8>> {
 }
 
 /// Decompress gzip data
+/// 解压缩 gzip 数据
 fn decompress_gzip(data: &[u8]) -> Result<Vec<u8>> {
     let mut decoder = GzDecoder::new(data);
     let mut decompressed = Vec::new();
@@ -89,18 +99,21 @@ fn decompress_gzip(data: &[u8]) -> Result<Vec<u8>> {
 }
 
 /// Compress data using zstd
+/// 使用 zstd 压缩数据
 fn compress_zstd(data: &[u8], level: u32) -> Result<Vec<u8>> {
     zstd::encode_all(data, level as i32)
         .map_err(|e| CryptoError::SystemError(format!("Zstd compression failed: {}", e)))
 }
 
 /// Decompress zstd data
+/// 解压缩 zstd 数据
 fn decompress_zstd(data: &[u8]) -> Result<Vec<u8>> {
     zstd::decode_all(data)
         .map_err(|e| CryptoError::SystemError(format!("Zstd decompression failed: {}", e)))
 }
 
 /// Compress data from a reader to a writer using streaming
+/// 使用流式方式从读取器压缩数据到写入器
 pub fn compress_stream(
     reader: &mut impl Read,
     writer: &mut impl Write,
@@ -113,6 +126,7 @@ pub fn compress_stream(
 }
 
 /// Decompress data from a reader to a writer using streaming
+/// 使用流式方式从读取器解压缩数据到写入器
 pub fn decompress_stream(
     reader: &mut impl Read,
     writer: &mut impl Write,
@@ -125,6 +139,7 @@ pub fn decompress_stream(
 }
 
 /// Compress stream using gzip
+/// 使用 gzip 压缩流
 fn compress_stream_gzip(
     reader: &mut impl Read,
     writer: &mut impl Write,
@@ -140,6 +155,7 @@ fn compress_stream_gzip(
 }
 
 /// Decompress stream using gzip
+/// 使用 gzip 解压缩流
 fn decompress_stream_gzip(reader: &mut impl Read, writer: &mut impl Write) -> Result<()> {
     let mut decoder = flate2::read::GzDecoder::new(reader);
     std::io::copy(&mut decoder, writer)
@@ -148,6 +164,7 @@ fn decompress_stream_gzip(reader: &mut impl Read, writer: &mut impl Write) -> Re
 }
 
 /// Compress stream using zstd
+/// 使用 zstd 压缩流
 fn compress_stream_zstd(
     reader: &mut impl Read,
     writer: &mut impl Write,
@@ -164,6 +181,7 @@ fn compress_stream_zstd(
 }
 
 /// Decompress stream using zstd
+/// 使用 zstd 解压缩流
 fn decompress_stream_zstd(reader: &mut impl Read, writer: &mut impl Write) -> Result<()> {
     let mut decoder = zstd::Decoder::new(reader)
         .map_err(|e| CryptoError::SystemError(format!("Zstd decoder creation failed: {}", e)))?;

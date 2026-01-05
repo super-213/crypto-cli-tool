@@ -43,7 +43,6 @@ crypto-cli-tool/
 │   ├── compression.rs       # 压缩引擎
 │   ├── archive.rs           # 目录归档格式
 │   ├── directory.rs         # 目录遍历
-│   ├── validation.rs        # 输入验证
 │   └── error.rs             # 错误类型定义
 ├── tests/
 │   ├── crypto_test.rs       # 加密功能测试

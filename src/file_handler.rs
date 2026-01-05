@@ -1,4 +1,5 @@
 // File Handler module - file I/O, streaming, and directory operations
+// 文件处理器模块 - 文件 I/O、流式处理和目录操作
 
 use crate::error::{CryptoError, Result};
 use crate::key_manager::KdfAlgorithm;
@@ -7,12 +8,15 @@ use std::io::{Read, Write};
 use sha2::{Sha256, Digest};
 
 /// Magic bytes for encrypted file identification: "CRYPTOOL"
+/// 加密文件识别的魔数字节："CRYPTOOL"
 pub const MAGIC_BYTES: [u8; 8] = *b"CRYPTOOL";
 
 /// Current file format version
+/// 当前文件格式版本
 pub const CURRENT_VERSION: u16 = 1;
 
 /// Encryption algorithm identifiers
+/// 加密算法标识符
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Algorithm {
@@ -26,6 +30,7 @@ pub enum Algorithm {
 
 impl Algorithm {
     /// Convert from byte representation
+    /// 从字节表示转换
     pub fn from_u8(value: u8) -> Result<Self> {
         match value {
             0x01 => Ok(Algorithm::Aes256Gcm),
@@ -39,53 +44,68 @@ impl Algorithm {
     }
     
     /// Convert to byte representation
+    /// 转换为字节表示
     pub fn to_u8(self) -> u8 {
         self as u8
     }
 }
 
 /// Encrypted file header structure
+/// 加密文件头部结构
 ///
 /// This structure contains all metadata needed to decrypt a file,
 /// including algorithm information, KDF parameters, IV, and optional metadata.
+/// 此结构包含解密文件所需的所有元数据，包括算法信息、KDF 参数、IV 和可选元数据。
 #[derive(Debug, Clone)]
 pub struct EncryptedFileHeader {
     /// Magic bytes for file identification: "CRYPTOOL"
+    /// 文件识别的魔数字节："CRYPTOOL"
     pub magic: [u8; 8],
     
     /// File format version
+    /// 文件格式版本
     pub version: u16,
     
     /// Encryption algorithm used
+    /// 使用的加密算法
     pub algorithm: Algorithm,
     
     /// Key derivation function (None if raw key was used)
+    /// 密钥派生函数（如果使用原始密钥则为 None）
     pub kdf: Option<KdfAlgorithm>,
     
     /// KDF iteration count (None if KDF not used)
+    /// KDF 迭代次数（如果未使用 KDF 则为 None）
     pub kdf_iterations: Option<u32>,
     
     /// Salt for key derivation (None if KDF not used)
+    /// 密钥派生的盐（如果未使用 KDF 则为 None）
     pub salt: Option<Vec<u8>>,
     
     /// Initialization vector or nonce
+    /// 初始化向量或 nonce
     pub iv: Vec<u8>,
     
     /// Whether the data was compressed before encryption
+    /// 数据在加密前是否被压缩
     pub compressed: bool,
     
     /// Compression algorithm used (None if not compressed)
+    /// 使用的压缩算法（如果未压缩则为 None）
     pub compression_algo: Option<CompressionAlgorithm>,
     
     /// Original unencrypted file size
+    /// 原始未加密文件大小
     pub original_size: u64,
     
     /// Additional metadata in JSON format
+    /// JSON 格式的附加元数据
     pub metadata: Vec<u8>,
 }
 
 impl EncryptedFileHeader {
     /// Create a new encrypted file header with default values
+    /// 使用默认值创建新的加密文件头部
     pub fn new(algorithm: Algorithm, iv: Vec<u8>, original_size: u64) -> Self {
         Self {
             magic: MAGIC_BYTES,
@@ -103,6 +123,7 @@ impl EncryptedFileHeader {
     }
     
     /// Set KDF parameters
+    /// 设置 KDF 参数
     pub fn with_kdf(mut self, kdf: KdfAlgorithm, iterations: u32, salt: Vec<u8>) -> Self {
         self.kdf = Some(kdf);
         self.kdf_iterations = Some(iterations);
@@ -111,6 +132,7 @@ impl EncryptedFileHeader {
     }
     
     /// Set compression parameters
+    /// 设置压缩参数
     pub fn with_compression(mut self, algo: CompressionAlgorithm) -> Self {
         self.compressed = true;
         self.compression_algo = Some(algo);
@@ -118,35 +140,37 @@ impl EncryptedFileHeader {
     }
     
     /// Set metadata
+    /// 设置元数据
     pub fn with_metadata(mut self, metadata: Vec<u8>) -> Self {
         self.metadata = metadata;
         self
     }
     
     /// Serialize the header to binary format and write to a writer
+    /// 将头部序列化为二进制格式并写入写入器
     ///
-    /// Format:
-    /// - Magic Bytes (8 bytes): "CRYPTOOL"
-    /// - Version (2 bytes): u16 little-endian
-    /// - Algorithm ID (1 byte)
-    /// - Flags (1 byte): [compressed|reserved|reserved|...]
-    /// - Compression Algorithm (1 byte, 0x00 if not compressed)
-    /// - KDF Algorithm (1 byte, 0x00 if not used)
-    /// - KDF Iterations (4 bytes, 0 if not used)
-    /// - Salt Length (1 byte)
-    /// - Salt (variable, 0-255 bytes)
-    /// - IV Length (1 byte)
-    /// - IV (variable, typically 12-16 bytes)
-    /// - Original Size (8 bytes)
-    /// - Metadata Length (2 bytes)
-    /// - Metadata (variable, JSON format)
-    /// - Header Checksum (32 bytes, SHA-256)
+    /// Format: / 格式：
+    /// - Magic Bytes (8 bytes): "CRYPTOOL" / 魔数字节（8 字节）："CRYPTOOL"
+    /// - Version (2 bytes): u16 little-endian / 版本（2 字节）：u16 小端序
+    /// - Algorithm ID (1 byte) / 算法 ID（1 字节）
+    /// - Flags (1 byte): [compressed|reserved|reserved|...] / 标志（1 字节）：[已压缩|保留|保留|...]
+    /// - Compression Algorithm (1 byte, 0x00 if not compressed) / 压缩算法（1 字节，如果未压缩则为 0x00）
+    /// - KDF Algorithm (1 byte, 0x00 if not used) / KDF 算法（1 字节，如果未使用则为 0x00）
+    /// - KDF Iterations (4 bytes, 0 if not used) / KDF 迭代次数（4 字节，如果未使用则为 0）
+    /// - Salt Length (1 byte) / 盐长度（1 字节）
+    /// - Salt (variable, 0-255 bytes) / 盐（可变，0-255 字节）
+    /// - IV Length (1 byte) / IV 长度（1 字节）
+    /// - IV (variable, typically 12-16 bytes) / IV（可变，通常 12-16 字节）
+    /// - Original Size (8 bytes) / 原始大小（8 字节）
+    /// - Metadata Length (2 bytes) / 元数据长度（2 字节）
+    /// - Metadata (variable, JSON format) / 元数据（可变，JSON 格式）
+    /// - Header Checksum (32 bytes, SHA-256) / 头部校验和（32 字节，SHA-256）
     ///
-    /// # Arguments
-    /// * `writer` - The writer to write the header to
+    /// # Arguments / 参数
+    /// * `writer` - The writer to write the header to / 要写入头部的写入器
     ///
-    /// # Returns
-    /// Ok(()) on success, or an error if writing fails
+    /// # Returns / 返回值
+    /// Ok(()) on success, or an error if writing fails / 成功时返回 Ok(())，写入失败时返回错误
     pub fn write_to<W: Write>(&self, writer: &mut W) -> Result<()> {
         // Build header data (everything except the checksum)
         let mut header_data = Vec::new();
@@ -230,16 +254,19 @@ impl EncryptedFileHeader {
     }
     
     /// Deserialize the header from binary format and read from a reader
+    /// 从二进制格式反序列化头部并从读取器读取
     ///
     /// This function reads the header, verifies the checksum, and validates
     /// the version and algorithm IDs.
+    /// 此函数读取头部，验证校验和，并验证版本和算法 ID。
     ///
-    /// # Arguments
-    /// * `reader` - The reader to read the header from
+    /// # Arguments / 参数
+    /// * `reader` - The reader to read the header from / 要读取头部的读取器
     ///
-    /// # Returns
+    /// # Returns / 返回值
     /// The deserialized EncryptedFileHeader on success, or an error if reading,
     /// verification, or validation fails
+    /// 成功时返回反序列化的 EncryptedFileHeader，读取、验证或校验失败时返回错误
     pub fn read_from<R: Read>(reader: &mut R) -> Result<Self> {
         // Read magic bytes (8 bytes)
         let mut magic = [0u8; 8];
@@ -405,30 +432,32 @@ impl EncryptedFileHeader {
 }
 
 /// Encrypt a file with the specified algorithm and key
+/// 使用指定的算法和密钥加密文件
 ///
 /// This function implements the complete file encryption workflow:
-/// 1. Read plaintext file
-/// 2. Optionally compress the data
-/// 3. Encrypt with the chosen algorithm
-/// 4. Write encrypted file with header
+/// 此函数实现完整的文件加密工作流：
+/// 1. Read plaintext file / 读取明文文件
+/// 2. Optionally compress the data / 可选地压缩数据
+/// 3. Encrypt with the chosen algorithm / 使用选定的算法加密
+/// 4. Write encrypted file with header / 写入带头部的加密文件
 ///
-/// # Arguments
-/// * `input_path` - Path to the plaintext file
-/// * `output_path` - Path for the encrypted output file
-/// * `key` - Encryption key
-/// * `algorithm` - Encryption algorithm to use
-/// * `compression` - Optional compression algorithm
-/// * `kdf_params` - Optional KDF parameters (if key was derived from password)
+/// # Arguments / 参数
+/// * `input_path` - Path to the plaintext file / 明文文件的路径
+/// * `output_path` - Path for the encrypted output file / 加密输出文件的路径
+/// * `key` - Encryption key / 加密密钥
+/// * `algorithm` - Encryption algorithm to use / 要使用的加密算法
+/// * `compression` - Optional compression algorithm / 可选的压缩算法
+/// * `kdf_params` - Optional KDF parameters (if key was derived from password) / 可选的 KDF 参数（如果密钥是从密码派生的）
 ///
-/// # Returns
-/// Ok(()) on success, or an error if encryption fails
+/// # Returns / 返回值
+/// Ok(()) on success, or an error if encryption fails / 成功时返回 Ok(())，加密失败时返回错误
 pub fn encrypt_file(
     input_path: &std::path::Path,
     output_path: &std::path::Path,
     key: &crate::key_manager::SecureBytes,
     algorithm: Algorithm,
     compression: Option<CompressionAlgorithm>,
-    kdf_params: Option<(KdfAlgorithm, u32, Vec<u8>)>, // (kdf, iterations, salt)
+    kdf_params: Option<(KdfAlgorithm, u32, Vec<u8>)>, // (kdf, iterations, salt) / (kdf, 迭代次数, 盐)
 ) -> Result<()> {
     use std::fs::File;
     use std::io::BufReader;
@@ -545,21 +574,23 @@ pub fn encrypt_file(
 }
 
 /// Decrypt a file that was encrypted with encrypt_file
+/// 解密使用 encrypt_file 加密的文件
 ///
 /// This function implements the complete file decryption workflow:
-/// 1. Read and parse encrypted file header
-/// 2. Verify authentication tag
-/// 3. Decrypt ciphertext
-/// 4. Optionally decompress
-/// 5. Write plaintext file
+/// 此函数实现完整的文件解密工作流：
+/// 1. Read and parse encrypted file header / 读取并解析加密文件头部
+/// 2. Verify authentication tag / 验证认证标签
+/// 3. Decrypt ciphertext / 解密密文
+/// 4. Optionally decompress / 可选地解压缩
+/// 5. Write plaintext file / 写入明文文件
 ///
-/// # Arguments
-/// * `input_path` - Path to the encrypted file
-/// * `output_path` - Path for the decrypted output file
-/// * `key` - Decryption key
+/// # Arguments / 参数
+/// * `input_path` - Path to the encrypted file / 加密文件的路径
+/// * `output_path` - Path for the decrypted output file / 解密输出文件的路径
+/// * `key` - Decryption key / 解密密钥
 ///
-/// # Returns
-/// Ok(()) on success, or an error if decryption fails
+/// # Returns / 返回值
+/// Ok(()) on success, or an error if decryption fails / 成功时返回 Ok(())，解密失败时返回错误
 pub fn decrypt_file(
     input_path: &std::path::Path,
     output_path: &std::path::Path,
@@ -671,9 +702,11 @@ pub fn decrypt_file(
 }
 
 /// Atomic file operations module
+/// 原子文件操作模块
 /// 
 /// This module provides utilities for atomic file operations that ensure
 /// data integrity even in the presence of failures or crashes.
+/// 此模块提供原子文件操作的实用工具，即使在出现故障或崩溃时也能确保数据完整性。
 pub mod atomic {
     use crate::error::{CryptoError, Result};
     use std::fs::File;
@@ -681,6 +714,7 @@ pub mod atomic {
     use std::path::{Path, PathBuf};
     
     /// A temporary file that will be cleaned up on drop if not committed
+    /// 如果未提交，将在销毁时清理的临时文件
     pub struct AtomicFile {
         temp_path: PathBuf,
         final_path: PathBuf,
@@ -690,9 +724,11 @@ pub mod atomic {
     
     impl AtomicFile {
         /// Create a new atomic file operation
+        /// 创建新的原子文件操作
         /// 
         /// This creates a temporary file that will be atomically renamed
         /// to the final path when committed.
+        /// 这会创建一个临时文件，在提交时将原子地重命名为最终路径。
         pub fn new(final_path: &Path) -> Result<Self> {
             let temp_path = final_path.with_extension("tmp");
             
@@ -708,6 +744,7 @@ pub mod atomic {
         }
         
         /// Get a mutable reference to the underlying file
+        /// 获取底层文件的可变引用
         pub fn file_mut(&mut self) -> Result<&mut File> {
             self.file.as_mut().ok_or_else(|| {
                 CryptoError::SystemError("Atomic file already closed".to_string())
@@ -715,6 +752,7 @@ pub mod atomic {
         }
         
         /// Write data to the temporary file
+        /// 将数据写入临时文件
         pub fn write_all(&mut self, data: &[u8]) -> Result<()> {
             let file = self.file_mut()?;
             file.write_all(data)

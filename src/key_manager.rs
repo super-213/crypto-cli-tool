@@ -1,4 +1,5 @@
 // Key Manager module - key derivation, generation, and management
+// 密钥管理器模块 - 密钥派生、生成和管理
 
 use crate::error::{CryptoError, Result};
 use ring::pbkdf2;
@@ -11,6 +12,8 @@ use zeroize::Zeroize;
 
 /// SecureBytes is a wrapper around Vec<u8> that zeros memory on drop
 /// This ensures sensitive key material is cleared from memory when no longer needed
+/// SecureBytes 是 Vec<u8> 的包装器，在销毁时清零内存
+/// 这确保敏感的密钥材料在不再需要时从内存中清除
 #[derive(Clone)]
 pub struct SecureBytes {
     data: Vec<u8>,
@@ -18,11 +21,13 @@ pub struct SecureBytes {
 
 impl SecureBytes {
     /// Create a new SecureBytes from a Vec<u8>
+    /// 从 Vec<u8> 创建新的 SecureBytes
     pub fn new(data: Vec<u8>) -> Self {
         Self { data }
     }
 
     /// Create a new SecureBytes with a specific capacity
+    /// 创建具有特定容量的新 SecureBytes
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
             data: Vec::with_capacity(capacity),
@@ -30,6 +35,7 @@ impl SecureBytes {
     }
 
     /// Create a new SecureBytes filled with zeros
+    /// 创建填充零的新 SecureBytes
     pub fn zeros(len: usize) -> Self {
         Self {
             data: vec![0u8; len],
@@ -37,27 +43,33 @@ impl SecureBytes {
     }
 
     /// Get the length of the data
+    /// 获取数据的长度
     pub fn len(&self) -> usize {
         self.data.len()
     }
 
     /// Check if the data is empty
+    /// 检查数据是否为空
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
 
     /// Convert to a Vec<u8>, consuming self
+    /// 转换为 Vec<u8>，消耗 self
     pub fn into_vec(mut self) -> Vec<u8> {
         // Take ownership of the inner vec without zeroing
+        // 获取内部 vec 的所有权而不清零
         std::mem::take(&mut self.data)
     }
 
     /// Get a reference to the inner data as a slice
+    /// 获取内部数据的切片引用
     pub fn as_slice(&self) -> &[u8] {
         &self.data
     }
 
     /// Get a mutable reference to the inner data as a slice
+    /// 获取内部数据的可变切片引用
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         &mut self.data
     }
@@ -80,6 +92,7 @@ impl DerefMut for SecureBytes {
 impl Drop for SecureBytes {
     fn drop(&mut self) {
         // Zero the memory before deallocation
+        // 在释放前清零内存
         self.data.zeroize();
     }
 }
@@ -110,6 +123,8 @@ impl AsMut<[u8]> for SecureBytes {
 
 /// SecureString is a wrapper around String that zeros memory on drop
 /// This ensures sensitive password/passphrase material is cleared from memory when no longer needed
+/// SecureString 是 String 的包装器，在销毁时清零内存
+/// 这确保敏感的密码/口令材料在不再需要时从内存中清除
 #[derive(Clone)]
 pub struct SecureString {
     data: String,
@@ -173,8 +188,11 @@ impl Deref for SecureString {
 impl Drop for SecureString {
     fn drop(&mut self) {
         // Zero the memory before deallocation
+        // 在释放前清零内存
         // SAFETY: We're zeroing the string's bytes, which is safe
         // The string will be dropped immediately after
+        // 安全性：我们正在清零字符串的字节，这是安全的
+        // 字符串将在之后立即被销毁
         unsafe {
             self.data.as_bytes_mut().zeroize();
         }
@@ -201,6 +219,7 @@ impl AsRef<str> for SecureString {
 
 
 /// Key Derivation Function algorithms
+/// 密钥派生函数算法
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KdfAlgorithm {
     Pbkdf2Sha256,
@@ -208,6 +227,7 @@ pub enum KdfAlgorithm {
 }
 
 /// Algorithm types for key generation
+/// 密钥生成的算法类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Algorithm {
     Aes256Gcm,
@@ -220,19 +240,21 @@ pub enum Algorithm {
 
 impl Algorithm {
     /// Get the key size in bytes for symmetric algorithms
+    /// 获取对称算法的密钥大小（字节）
     pub fn key_size(&self) -> usize {
         match self {
             Algorithm::Aes256Gcm => 32,
             Algorithm::Aes256Cbc => 32,
             Algorithm::ChaCha20Poly1305 => 32,
-            Algorithm::RsaOaep2048 => 0, // Asymmetric - no fixed key size
-            Algorithm::RsaOaep4096 => 0, // Asymmetric - no fixed key size
-            Algorithm::EciesP256 => 0,   // Asymmetric - no fixed key size
+            Algorithm::RsaOaep2048 => 0, // Asymmetric - no fixed key size / 非对称 - 无固定密钥大小
+            Algorithm::RsaOaep4096 => 0, // Asymmetric - no fixed key size / 非对称 - 无固定密钥大小
+            Algorithm::EciesP256 => 0,   // Asymmetric - no fixed key size / 非对称 - 无固定密钥大小
         }
     }
 }
 
 /// Asymmetric algorithm types for key pair generation
+/// 密钥对生成的非对称算法类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AsymmetricAlgorithm {
     RsaOaep2048,
@@ -241,21 +263,23 @@ pub enum AsymmetricAlgorithm {
 }
 
 /// Key pair structure for asymmetric algorithms
+/// 非对称算法的密钥对结构
 pub struct KeyPair {
     pub public_key: Vec<u8>,
     pub private_key: SecureBytes,
 }
 
 /// Derive a key from a password using PBKDF2-SHA256
+/// 使用 PBKDF2-SHA256 从密码派生密钥
 ///
-/// # Arguments
-/// * `password` - The password to derive from
-/// * `salt` - The salt (should be at least 16 bytes, preferably 32)
-/// * `iterations` - Number of iterations (minimum 100,000 recommended)
-/// * `output_length` - Length of the derived key in bytes
+/// # Arguments / 参数
+/// * `password` - The password to derive from / 要派生的密码
+/// * `salt` - The salt (should be at least 16 bytes, preferably 32) / 盐（应至少 16 字节，最好 32 字节）
+/// * `iterations` - Number of iterations (minimum 100,000 recommended) / 迭代次数（建议最少 100,000）
+/// * `output_length` - Length of the derived key in bytes / 派生密钥的长度（字节）
 ///
-/// # Returns
-/// A SecureBytes containing the derived key
+/// # Returns / 返回值
+/// A SecureBytes containing the derived key / 包含派生密钥的 SecureBytes
 pub fn derive_key_pbkdf2(
     password: &SecureString,
     salt: &[u8],
@@ -279,16 +303,17 @@ pub fn derive_key_pbkdf2(
 }
 
 /// Derive a key from a password using Argon2id
+/// 使用 Argon2id 从密码派生密钥
 ///
-/// # Arguments
-/// * `password` - The password to derive from
-/// * `salt` - The salt (should be at least 16 bytes, preferably 32)
-/// * `memory_cost` - Memory cost in KiB (default: 19456 = 19 MiB)
-/// * `time_cost` - Time cost / iterations (default: 2)
-/// * `output_length` - Length of the derived key in bytes
+/// # Arguments / 参数
+/// * `password` - The password to derive from / 要派生的密码
+/// * `salt` - The salt (should be at least 16 bytes, preferably 32) / 盐（应至少 16 字节，最好 32 字节）
+/// * `memory_cost` - Memory cost in KiB (default: 19456 = 19 MiB) / 内存成本（KiB）（默认：19456 = 19 MiB）
+/// * `time_cost` - Time cost / iterations (default: 2) / 时间成本/迭代次数（默认：2）
+/// * `output_length` - Length of the derived key in bytes / 派生密钥的长度（字节）
 ///
-/// # Returns
-/// A SecureBytes containing the derived key
+/// # Returns / 返回值
+/// A SecureBytes containing the derived key / 包含派生密钥的 SecureBytes
 pub fn derive_key_argon2id(
     password: &SecureString,
     salt: &[u8],
@@ -326,9 +351,10 @@ pub fn derive_key_argon2id(
 
 
 /// Generate a cryptographically secure random salt
+/// 生成加密安全的随机盐
 ///
-/// # Returns
-/// A 32-byte array containing the random salt
+/// # Returns / 返回值
+/// A 32-byte array containing the random salt / 包含随机盐的 32 字节数组
 pub fn generate_salt() -> Result<[u8; 32]> {
     let rng = SystemRandom::new();
     let mut salt = [0u8; 32];
@@ -340,12 +366,13 @@ pub fn generate_salt() -> Result<[u8; 32]> {
 }
 
 /// Generate a symmetric key of the specified length
+/// 生成指定长度的对称密钥
 ///
-/// # Arguments
-/// * `algorithm` - The algorithm to generate a key for
+/// # Arguments / 参数
+/// * `algorithm` - The algorithm to generate a key for / 要生成密钥的算法
 ///
-/// # Returns
-/// A SecureBytes containing the random key
+/// # Returns / 返回值
+/// A SecureBytes containing the random key / 包含随机密钥的 SecureBytes
 pub fn generate_symmetric_key(algorithm: Algorithm) -> Result<SecureBytes> {
     let key_size = algorithm.key_size();
     
@@ -365,12 +392,13 @@ pub fn generate_symmetric_key(algorithm: Algorithm) -> Result<SecureBytes> {
 }
 
 /// Generate an asymmetric key pair
+/// 生成非对称密钥对
 ///
-/// # Arguments
-/// * `algorithm` - The asymmetric algorithm to generate keys for
+/// # Arguments / 参数
+/// * `algorithm` - The asymmetric algorithm to generate keys for / 要生成密钥的非对称算法
 ///
-/// # Returns
-/// A KeyPair containing the public and private keys
+/// # Returns / 返回值
+/// A KeyPair containing the public and private keys / 包含公钥和私钥的 KeyPair
 pub fn generate_key_pair(algorithm: AsymmetricAlgorithm) -> Result<KeyPair> {
     match algorithm {
         AsymmetricAlgorithm::RsaOaep2048 => generate_rsa_key_pair(2048),
@@ -380,6 +408,7 @@ pub fn generate_key_pair(algorithm: AsymmetricAlgorithm) -> Result<KeyPair> {
 }
 
 /// Generate an RSA key pair
+/// 生成 RSA 密钥对
 fn generate_rsa_key_pair(bits: usize) -> Result<KeyPair> {
     use rsa::{RsaPrivateKey, RsaPublicKey};
     use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey};
@@ -407,6 +436,7 @@ fn generate_rsa_key_pair(bits: usize) -> Result<KeyPair> {
 }
 
 /// Generate an ECIES P-256 key pair
+/// 生成 ECIES P-256 密钥对
 fn generate_ecies_key_pair() -> Result<KeyPair> {
     use p256::SecretKey;
     use p256::pkcs8::{EncodePrivateKey, EncodePublicKey};

@@ -1,4 +1,5 @@
 // Crypto module - core cryptographic operations
+// 加密模块 - 核心加密操作
 
 use crate::error::{CryptoError, Result};
 use crate::key_manager::SecureBytes;
@@ -21,15 +22,17 @@ use hkdf::Hkdf;
 type HmacSha256 = Hmac<Sha256>;
 
 /// Result of an encryption operation
+/// 加密操作的结果
 #[derive(Debug, Clone)]
 pub struct EncryptionResult {
     pub ciphertext: Vec<u8>,
     pub iv: Vec<u8>,
-    pub tag: Option<Vec<u8>>,  // For AEAD modes
-    pub mac: Option<Vec<u8>>,  // For non-AEAD modes (CBC + HMAC)
+    pub tag: Option<Vec<u8>>,  // For AEAD modes / 用于 AEAD 模式
+    pub mac: Option<Vec<u8>>,  // For non-AEAD modes (CBC + HMAC) / 用于非 AEAD 模式（CBC + HMAC）
 }
 
 /// Result of a hybrid encryption operation
+/// 混合加密操作的结果
 #[derive(Debug, Clone)]
 pub struct HybridEncryptionResult {
     pub encrypted_data: EncryptionResult,
@@ -38,6 +41,7 @@ pub struct HybridEncryptionResult {
 }
 
 /// Hybrid encryption algorithm types
+/// 混合加密算法类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HybridAlgorithm {
     RsaOaep2048Aes256Gcm,
@@ -46,13 +50,15 @@ pub enum HybridAlgorithm {
 }
 
 /// Context for encryption operations
+/// 加密操作的上下文
 pub struct EncryptionContext {
     pub key: SecureBytes,
-    pub iv: Option<Vec<u8>>,  // If None, will be generated
-    pub aad: Option<Vec<u8>>, // Additional authenticated data for AEAD
+    pub iv: Option<Vec<u8>>,  // If None, will be generated / 如果为 None，将自动生成
+    pub aad: Option<Vec<u8>>, // Additional authenticated data for AEAD / AEAD 的附加认证数据
 }
 
 /// Context for decryption operations
+/// 解密操作的上下文
 pub struct DecryptionContext {
     pub key: SecureBytes,
     pub iv: Vec<u8>,
@@ -61,6 +67,7 @@ pub struct DecryptionContext {
 }
 
 /// Generate a random IV/nonce of the specified length
+/// 生成指定长度的随机 IV/nonce
 pub fn generate_iv(length: usize) -> Result<Vec<u8>> {
     let rng = SystemRandom::new();
     let mut iv = vec![0u8; length];
@@ -72,23 +79,24 @@ pub fn generate_iv(length: usize) -> Result<Vec<u8>> {
 }
 
 /// Encrypt data using AES-256-GCM
+/// 使用 AES-256-GCM 加密数据
 ///
-/// # Arguments
-/// * `plaintext` - The data to encrypt
-/// * `context` - Encryption context containing key, optional IV, and optional AAD
+/// # Arguments / 参数
+/// * `plaintext` - The data to encrypt / 要加密的数据
+/// * `context` - Encryption context containing key, optional IV, and optional AAD / 包含密钥、可选 IV 和可选 AAD 的加密上下文
 ///
-/// # Returns
-/// EncryptionResult containing ciphertext, IV, and authentication tag
+/// # Returns / 返回值
+/// EncryptionResult containing ciphertext, IV, and authentication tag / 包含密文、IV 和认证标签的 EncryptionResult
 pub fn encrypt_aes_256_gcm(
     plaintext: &[u8],
     context: &EncryptionContext,
 ) -> Result<EncryptionResult> {
-    // Validate key size
+    // Validate key size / 验证密钥大小
     if context.key.len() != 32 {
         return Err(CryptoError::InvalidKey);
     }
     
-    // Generate or use provided IV (12 bytes for GCM)
+    // Generate or use provided IV (12 bytes for GCM) / 生成或使用提供的 IV（GCM 需要 12 字节）
     let iv = match &context.iv {
         Some(iv) => {
             if iv.len() != 12 {
@@ -99,13 +107,13 @@ pub fn encrypt_aes_256_gcm(
         None => generate_iv(12)?,
     };
     
-    // Create cipher instance
+    // Create cipher instance / 创建密码实例
     let cipher = Aes256Gcm::new_from_slice(context.key.as_ref())
         .map_err(|_| CryptoError::InvalidKey)?;
     
     let nonce = Nonce::from_slice(&iv);
     
-    // Prepare payload with optional AAD
+    // Prepare payload with optional AAD / 准备带有可选 AAD 的有效载荷
     let payload = match &context.aad {
         Some(aad) => Payload {
             msg: plaintext,
@@ -117,12 +125,12 @@ pub fn encrypt_aes_256_gcm(
         },
     };
     
-    // Encrypt and get ciphertext with tag appended
+    // Encrypt and get ciphertext with tag appended / 加密并获取附加标签的密文
     let ciphertext_with_tag = cipher
         .encrypt(nonce, payload)
         .map_err(|_| CryptoError::EncryptionFailed("AES-256-GCM encryption failed".to_string()))?;
     
-    // Split ciphertext and tag (tag is last 16 bytes)
+    // Split ciphertext and tag (tag is last 16 bytes) / 分离密文和标签（标签是最后 16 字节）
     let tag_len = 16;
     if ciphertext_with_tag.len() < tag_len {
         return Err(CryptoError::EncryptionFailed("Invalid ciphertext length".to_string()));
@@ -141,13 +149,14 @@ pub fn encrypt_aes_256_gcm(
 }
 
 /// Decrypt data using AES-256-GCM
+/// 使用 AES-256-GCM 解密数据
 ///
-/// # Arguments
-/// * `ciphertext` - The encrypted data
-/// * `context` - Decryption context containing key, IV, and authentication tag
+/// # Arguments / 参数
+/// * `ciphertext` - The encrypted data / 加密的数据
+/// * `context` - Decryption context containing key, IV, and authentication tag / 包含密钥、IV 和认证标签的解密上下文
 ///
-/// # Returns
-/// Decrypted plaintext
+/// # Returns / 返回值
+/// Decrypted plaintext / 解密的明文
 pub fn decrypt_aes_256_gcm(
     ciphertext: &[u8],
     context: &DecryptionContext,
@@ -189,13 +198,14 @@ pub fn decrypt_aes_256_gcm(
 }
 
 /// Encrypt data using ChaCha20-Poly1305
+/// 使用 ChaCha20-Poly1305 加密数据
 ///
-/// # Arguments
-/// * `plaintext` - The data to encrypt
-/// * `context` - Encryption context containing key, optional IV, and optional AAD
+/// # Arguments / 参数
+/// * `plaintext` - The data to encrypt / 要加密的数据
+/// * `context` - Encryption context containing key, optional IV, and optional AAD / 包含密钥、可选 IV 和可选 AAD 的加密上下文
 ///
-/// # Returns
-/// EncryptionResult containing ciphertext, nonce, and authentication tag
+/// # Returns / 返回值
+/// EncryptionResult containing ciphertext, nonce, and authentication tag / 包含密文、nonce 和认证标签的 EncryptionResult
 pub fn encrypt_chacha20_poly1305(
     plaintext: &[u8],
     context: &EncryptionContext,
@@ -258,13 +268,14 @@ pub fn encrypt_chacha20_poly1305(
 }
 
 /// Decrypt data using ChaCha20-Poly1305
+/// 使用 ChaCha20-Poly1305 解密数据
 ///
-/// # Arguments
-/// * `ciphertext` - The encrypted data
-/// * `context` - Decryption context containing key, nonce, and authentication tag
+/// # Arguments / 参数
+/// * `ciphertext` - The encrypted data / 加密的数据
+/// * `context` - Decryption context containing key, nonce, and authentication tag / 包含密钥、nonce 和认证标签的解密上下文
 ///
-/// # Returns
-/// Decrypted plaintext
+/// # Returns / 返回值
+/// Decrypted plaintext / 解密的明文
 pub fn decrypt_chacha20_poly1305(
     ciphertext: &[u8],
     context: &DecryptionContext,
@@ -306,13 +317,14 @@ pub fn decrypt_chacha20_poly1305(
 }
 
 /// Encrypt data using AES-256-CBC with HMAC-SHA256 (Encrypt-then-MAC)
+/// 使用 AES-256-CBC 和 HMAC-SHA256 加密数据（先加密后 MAC）
 ///
-/// # Arguments
-/// * `plaintext` - The data to encrypt
-/// * `context` - Encryption context containing key and optional IV
+/// # Arguments / 参数
+/// * `plaintext` - The data to encrypt / 要加密的数据
+/// * `context` - Encryption context containing key and optional IV / 包含密钥和可选 IV 的加密上下文
 ///
-/// # Returns
-/// EncryptionResult containing ciphertext, IV, and HMAC
+/// # Returns / 返回值
+/// EncryptionResult containing ciphertext, IV, and HMAC / 包含密文、IV 和 HMAC 的 EncryptionResult
 pub fn encrypt_aes_256_cbc_hmac(
     plaintext: &[u8],
     context: &EncryptionContext,
@@ -365,13 +377,14 @@ pub fn encrypt_aes_256_cbc_hmac(
 }
 
 /// Decrypt data using AES-256-CBC with HMAC-SHA256 verification
+/// 使用 AES-256-CBC 和 HMAC-SHA256 验证解密数据
 ///
-/// # Arguments
-/// * `ciphertext` - The encrypted data
-/// * `context` - Decryption context containing key, IV, and HMAC
+/// # Arguments / 参数
+/// * `ciphertext` - The encrypted data / 加密的数据
+/// * `context` - Decryption context containing key, IV, and HMAC / 包含密钥、IV 和 HMAC 的解密上下文
 ///
-/// # Returns
-/// Decrypted plaintext
+/// # Returns / 返回值
+/// Decrypted plaintext / 解密的明文
 pub fn decrypt_aes_256_cbc_hmac(
     ciphertext: &[u8],
     context: &DecryptionContext,
@@ -418,6 +431,7 @@ pub fn decrypt_aes_256_cbc_hmac(
 }
 
 /// Apply PKCS7 padding to data
+/// 对数据应用 PKCS7 填充
 fn pkcs7_pad(data: &[u8], block_size: usize) -> Vec<u8> {
     let padding_len = block_size - (data.len() % block_size);
     let mut padded = data.to_vec();
@@ -426,6 +440,7 @@ fn pkcs7_pad(data: &[u8], block_size: usize) -> Vec<u8> {
 }
 
 /// Remove PKCS7 padding from data
+/// 从数据中移除 PKCS7 填充
 fn pkcs7_unpad(data: &[u8]) -> Result<&[u8]> {
     if data.is_empty() {
         return Err(CryptoError::DecryptionFailed("Empty data for unpadding".to_string()));
@@ -453,13 +468,14 @@ fn pkcs7_unpad(data: &[u8]) -> Result<&[u8]> {
 
 
 /// Encrypt data using RSA-OAEP
+/// 使用 RSA-OAEP 加密数据
 ///
-/// # Arguments
-/// * `plaintext` - The data to encrypt (must be smaller than key size - padding overhead)
-/// * `public_key_der` - The RSA public key in DER format
+/// # Arguments / 参数
+/// * `plaintext` - The data to encrypt (must be smaller than key size - padding overhead) / 要加密的数据（必须小于密钥大小 - 填充开销）
+/// * `public_key_der` - The RSA public key in DER format / DER 格式的 RSA 公钥
 ///
-/// # Returns
-/// Encrypted ciphertext
+/// # Returns / 返回值
+/// Encrypted ciphertext / 加密的密文
 pub fn encrypt_rsa_oaep(
     plaintext: &[u8],
     public_key_der: &[u8],
@@ -481,13 +497,14 @@ pub fn encrypt_rsa_oaep(
 }
 
 /// Decrypt data using RSA-OAEP
+/// 使用 RSA-OAEP 解密数据
 ///
-/// # Arguments
-/// * `ciphertext` - The encrypted data
-/// * `private_key_der` - The RSA private key in DER format
+/// # Arguments / 参数
+/// * `ciphertext` - The encrypted data / 加密的数据
+/// * `private_key_der` - The RSA private key in DER format / DER 格式的 RSA 私钥
 ///
-/// # Returns
-/// Decrypted plaintext
+/// # Returns / 返回值
+/// Decrypted plaintext / 解密的明文
 pub fn decrypt_rsa_oaep(
     ciphertext: &[u8],
     private_key_der: &[u8],
@@ -508,18 +525,20 @@ pub fn decrypt_rsa_oaep(
 }
 
 /// Encrypt data using ECIES with P-256 curve
+/// 使用 P-256 曲线的 ECIES 加密数据
 ///
 /// ECIES (Elliptic Curve Integrated Encryption Scheme) combines:
-/// 1. ECDH for key agreement
-/// 2. HKDF for key derivation
-/// 3. AES-256-GCM for symmetric encryption
+/// ECIES（椭圆曲线集成加密方案）结合了：
+/// 1. ECDH for key agreement / ECDH 用于密钥协商
+/// 2. HKDF for key derivation / HKDF 用于密钥派生
+/// 3. AES-256-GCM for symmetric encryption / AES-256-GCM 用于对称加密
 ///
-/// # Arguments
-/// * `plaintext` - The data to encrypt
-/// * `public_key_der` - The P-256 public key in DER format
+/// # Arguments / 参数
+/// * `plaintext` - The data to encrypt / 要加密的数据
+/// * `public_key_der` - The P-256 public key in DER format / DER 格式的 P-256 公钥
 ///
-/// # Returns
-/// Encrypted data with ephemeral public key prepended
+/// # Returns / 返回值
+/// Encrypted data with ephemeral public key prepended / 前置临时公钥的加密数据
 pub fn encrypt_ecies_p256(
     plaintext: &[u8],
     public_key_der: &[u8],
@@ -568,13 +587,14 @@ pub fn encrypt_ecies_p256(
 }
 
 /// Decrypt data using ECIES with P-256 curve
+/// 使用 P-256 曲线的 ECIES 解密数据
 ///
-/// # Arguments
-/// * `ciphertext` - The encrypted data (ephemeral public key || iv || ciphertext || tag)
-/// * `private_key_der` - The P-256 private key in DER format
+/// # Arguments / 参数
+/// * `ciphertext` - The encrypted data (ephemeral public key || iv || ciphertext || tag) / 加密的数据（临时公钥 || iv || 密文 || 标签）
+/// * `private_key_der` - The P-256 private key in DER format / DER 格式的 P-256 私钥
 ///
-/// # Returns
-/// Decrypted plaintext
+/// # Returns / 返回值
+/// Decrypted plaintext / 解密的明文
 pub fn decrypt_ecies_p256(
     ciphertext: &[u8],
     private_key_der: &[u8],
@@ -710,13 +730,14 @@ pub fn encrypt_hybrid(
 }
 
 /// Decrypt data using hybrid encryption (asymmetric + symmetric)
+/// 使用混合加密（非对称 + 对称）解密数据
 ///
-/// # Arguments
-/// * `hybrid_result` - The hybrid encryption result containing encrypted data and key
-/// * `private_key_der` - The private key in DER format
+/// # Arguments / 参数
+/// * `hybrid_result` - The hybrid encryption result containing encrypted data and key / 包含加密数据和密钥的混合加密结果
+/// * `private_key_der` - The private key in DER format / DER 格式的私钥
 ///
-/// # Returns
-/// Decrypted plaintext
+/// # Returns / 返回值
+/// Decrypted plaintext / 解密的明文
 pub fn decrypt_hybrid(
     hybrid_result: &HybridEncryptionResult,
     private_key_der: &[u8],
@@ -748,9 +769,11 @@ pub fn decrypt_hybrid(
 use std::io::{Read, Write};
 
 /// Chunk size for streaming encryption (64KB)
+/// 流式加密的块大小（64KB）
 pub const CHUNK_SIZE: usize = 64 * 1024;
 
 /// Result of streaming encryption operation
+/// 流式加密操作的结果
 #[derive(Debug, Clone)]
 pub struct StreamEncryptionResult {
     pub iv: Vec<u8>,
@@ -758,21 +781,24 @@ pub struct StreamEncryptionResult {
 }
 
 /// Encrypt data from a reader to a writer using streaming with AES-256-GCM
+/// 使用 AES-256-GCM 流式加密从读取器到写入器的数据
 ///
 /// This function processes data in 64KB chunks to maintain constant memory usage.
 /// Each chunk is encrypted independently with AEAD, using the chunk counter as AAD
 /// to prevent reordering attacks.
+/// 此函数以 64KB 块处理数据以保持恒定的内存使用。
+/// 每个块使用 AEAD 独立加密，使用块计数器作为 AAD 以防止重排序攻击。
 ///
-/// # Arguments
-/// * `reader` - Source of plaintext data
-/// * `writer` - Destination for encrypted data
-/// * `key` - 256-bit encryption key
+/// # Arguments / 参数
+/// * `reader` - Source of plaintext data / 明文数据源
+/// * `writer` - Destination for encrypted data / 加密数据目标
+/// * `key` - 256-bit encryption key / 256 位加密密钥
 ///
-/// # Returns
-/// StreamEncryptionResult containing the IV and total number of chunks
+/// # Returns / 返回值
+/// StreamEncryptionResult containing the IV and total number of chunks / 包含 IV 和总块数的 StreamEncryptionResult
 ///
-/// # Format
-/// The output format is:
+/// # Format / 格式
+/// The output format is: / 输出格式为：
 /// [chunk_0_ciphertext][chunk_0_tag][chunk_1_ciphertext][chunk_1_tag]...
 pub fn encrypt_stream_aes_256_gcm<R: Read, W: Write>(
     mut reader: R,
@@ -842,18 +868,21 @@ pub fn encrypt_stream_aes_256_gcm<R: Read, W: Write>(
 }
 
 /// Encrypt data from a reader to a writer using streaming with ChaCha20-Poly1305
+/// 使用 ChaCha20-Poly1305 流式加密从读取器到写入器的数据
 ///
 /// This function processes data in 64KB chunks to maintain constant memory usage.
 /// Each chunk is encrypted independently with AEAD, using the chunk counter as AAD
 /// to prevent reordering attacks.
+/// 此函数以 64KB 块处理数据以保持恒定的内存使用。
+/// 每个块使用 AEAD 独立加密，使用块计数器作为 AAD 以防止重排序攻击。
 ///
-/// # Arguments
-/// * `reader` - Source of plaintext data
-/// * `writer` - Destination for encrypted data
-/// * `key` - 256-bit encryption key
+/// # Arguments / 参数
+/// * `reader` - Source of plaintext data / 明文数据源
+/// * `writer` - Destination for encrypted data / 加密数据目标
+/// * `key` - 256-bit encryption key / 256 位加密密钥
 ///
-/// # Returns
-/// StreamEncryptionResult containing the nonce and total number of chunks
+/// # Returns / 返回值
+/// StreamEncryptionResult containing the nonce and total number of chunks / 包含 nonce 和总块数的 StreamEncryptionResult
 pub fn encrypt_stream_chacha20_poly1305<R: Read, W: Write>(
     mut reader: R,
     mut writer: W,
@@ -921,20 +950,23 @@ pub fn encrypt_stream_chacha20_poly1305<R: Read, W: Write>(
 }
 
 /// Decrypt data from a reader to a writer using streaming with AES-256-GCM
+/// 使用 AES-256-GCM 流式解密从读取器到写入器的数据
 ///
 /// This function processes data in chunks to maintain constant memory usage.
 /// Each chunk is decrypted and authenticated independently, with the chunk counter
 /// verified as AAD to detect reordering attacks.
+/// 此函数以块处理数据以保持恒定的内存使用。
+/// 每个块独立解密和认证，验证块计数器作为 AAD 以检测重排序攻击。
 ///
-/// # Arguments
-/// * `reader` - Source of encrypted data
-/// * `writer` - Destination for decrypted data
-/// * `key` - 256-bit decryption key
-/// * `iv` - The IV used during encryption
-/// * `total_chunks` - Total number of chunks to decrypt
+/// # Arguments / 参数
+/// * `reader` - Source of encrypted data / 加密数据源
+/// * `writer` - Destination for decrypted data / 解密数据目标
+/// * `key` - 256-bit decryption key / 256 位解密密钥
+/// * `iv` - The IV used during encryption / 加密时使用的 IV
+/// * `total_chunks` - Total number of chunks to decrypt / 要解密的总块数
 ///
-/// # Returns
-/// Ok(()) on success, or an error if decryption or authentication fails
+/// # Returns / 返回值
+/// Ok(()) on success, or an error if decryption or authentication fails / 成功时返回 Ok(())，解密或认证失败时返回错误
 pub fn decrypt_stream_aes_256_gcm<R: Read, W: Write>(
     mut reader: R,
     mut writer: W,

@@ -1,4 +1,5 @@
 // Application orchestrator - coordinates all modules and implements command handlers
+// 应用程序协调器 - 协调所有模块并实现命令处理器
 
 use crate::cli::{Command, EncryptArgs, DecryptArgs, KeygenArgs, InfoArgs};
 use crate::error::{CryptoError, Result};
@@ -8,6 +9,7 @@ use crate::compression::CompressionAlgorithm;
 use std::path::Path;
 
 /// Parse algorithm string to FileAlgorithm enum
+/// 将算法字符串解析为 FileAlgorithm 枚举
 fn parse_algorithm(algo_str: &str) -> Result<FileAlgorithm> {
     match algo_str.to_lowercase().as_str() {
         "aes-256-gcm" | "aes256gcm" => Ok(FileAlgorithm::Aes256Gcm),
@@ -21,6 +23,7 @@ fn parse_algorithm(algo_str: &str) -> Result<FileAlgorithm> {
 }
 
 /// Parse compression string to CompressionAlgorithm
+/// 将压缩字符串解析为 CompressionAlgorithm
 fn parse_compression(comp_str: &str, level: Option<u32>) -> Result<CompressionAlgorithm> {
     match comp_str.to_lowercase().as_str() {
         "gzip" => {
@@ -48,6 +51,7 @@ fn parse_compression(comp_str: &str, level: Option<u32>) -> Result<CompressionAl
 }
 
 /// Algorithm type for key generation
+/// 密钥生成的算法类型
 #[derive(Debug)]
 enum KeygenAlgorithm {
     Symmetric(crate::key_manager::Algorithm),
@@ -55,6 +59,7 @@ enum KeygenAlgorithm {
 }
 
 /// Parse keygen algorithm string
+/// 解析密钥生成算法字符串
 fn parse_keygen_algorithm(algo_str: &str) -> Result<KeygenAlgorithm> {
     use crate::key_manager::Algorithm;
     
@@ -82,21 +87,27 @@ fn parse_keygen_algorithm(algo_str: &str) -> Result<KeygenAlgorithm> {
 }
 
 /// Application configuration with sensible defaults
+/// 具有合理默认值的应用程序配置
 #[derive(Debug, Clone)]
 pub struct Config {
     /// Default encryption algorithm (AES-256-GCM)
+    /// 默认加密算法（AES-256-GCM）
     pub default_algorithm: FileAlgorithm,
     
     /// Default key derivation function (Argon2id)
+    /// 默认密钥派生函数（Argon2id）
     pub default_kdf: KdfAlgorithm,
     
     /// Default KDF iterations (100,000)
+    /// 默认 KDF 迭代次数（100,000）
     pub kdf_iterations: u32,
     
     /// Buffer size for streaming operations (64KB)
+    /// 流式操作的缓冲区大小（64KB）
     pub buffer_size: usize,
     
     /// Number of parallel workers for directory operations
+    /// 目录操作的并行工作线程数
     pub parallel_workers: usize,
 }
 
@@ -114,11 +125,13 @@ impl Default for Config {
 
 impl Config {
     /// Create a new Config with default values
+    /// 使用默认值创建新的 Config
     pub fn new() -> Self {
         Self::default()
     }
     
     /// Create a Config with custom values
+    /// 使用自定义值创建 Config
     pub fn with_values(
         algorithm: FileAlgorithm,
         kdf: KdfAlgorithm,
@@ -136,12 +149,14 @@ impl Config {
 }
 
 /// Application structure that holds configuration and orchestrates operations
+/// 保存配置并协调操作的应用程序结构
 pub struct Application {
     config: Config,
 }
 
 impl Application {
     /// Create a new Application with default configuration
+    /// 使用默认配置创建新的 Application
     pub fn new() -> Self {
         Self {
             config: Config::default(),
@@ -149,16 +164,19 @@ impl Application {
     }
     
     /// Create a new Application with custom configuration
+    /// 使用自定义配置创建新的 Application
     pub fn with_config(config: Config) -> Self {
         Self { config }
     }
     
     /// Get a reference to the application configuration
+    /// 获取应用程序配置的引用
     pub fn config(&self) -> &Config {
         &self.config
     }
     
     /// Execute a command
+    /// 执行命令
     pub fn execute(&self, command: Command) -> Result<()> {
         match command {
             Command::Encrypt(args) => self.handle_encrypt(args),
@@ -170,6 +188,7 @@ impl Application {
     }
     
     /// Handle the encrypt command
+    /// 处理加密命令
     fn handle_encrypt(&self, args: EncryptArgs) -> Result<()> {
         use crate::cli;
         
@@ -215,7 +234,12 @@ impl Application {
             // Encrypt directory
             if !args.recursive {
                 return Err(CryptoError::InvalidArguments(
-                    "Use --recursive flag to encrypt directories".to_string()
+                    format!(
+                        "The input path '{}' is a directory. Use --recursive (or -r) flag to encrypt directories.\n\
+                        Example: crypto-cli-tool encrypt -i {} --recursive",
+                        args.input.display(),
+                        args.input.display()
+                    )
                 ));
             }
             cli::log_verbose(args.verbose, "Encrypting directory...");
@@ -229,7 +253,9 @@ impl Application {
     }
     
     /// Obtain encryption key from the specified source
+    /// 从指定来源获取加密密钥
     /// Returns (key, optional_kdf_params)
+    /// 返回 (密钥, 可选的_kdf_参数)
     fn obtain_key_for_encryption(&self, args: &EncryptArgs) -> Result<(SecureBytes, Option<(KdfAlgorithm, u32, Vec<u8>)>)> {
         use crate::cli;
         use crate::key_manager;
@@ -328,6 +354,7 @@ impl Application {
     }
     
     /// Encrypt a single file
+    /// 加密单个文件
     fn encrypt_file(
         &self,
         input_path: &Path,
@@ -350,6 +377,7 @@ impl Application {
     }
     
     /// Encrypt a directory
+    /// 加密目录
     fn encrypt_directory(
         &self,
         input_path: &Path,
@@ -387,6 +415,7 @@ impl Application {
     }
     
     /// Handle the decrypt command
+    /// 处理解密命令
     fn handle_decrypt(&self, args: DecryptArgs) -> Result<()> {
         use crate::cli;
         use crate::file_handler;
@@ -471,6 +500,7 @@ impl Application {
     }
     
     /// Obtain decryption key from the specified source
+    /// 从指定来源获取解密密钥
     fn obtain_key_for_decryption(
         &self,
         args: &DecryptArgs,
@@ -576,6 +606,7 @@ impl Application {
     }
     
     /// Handle the keygen command
+    /// 处理密钥生成命令
     fn handle_keygen(&self, args: KeygenArgs) -> Result<()> {
         use crate::cli;
         use crate::key_manager;
@@ -678,6 +709,7 @@ impl Application {
     }
     
     /// Handle the list-algorithms command
+    /// 处理列出算法命令
     fn handle_list_algorithms(&self) -> Result<()> {
         println!("\n=== Supported Encryption Algorithms ===\n");
         
@@ -686,14 +718,14 @@ impl Application {
         println!("    - Key size: 256 bits");
         println!("    - Security: High");
         println!("    - AEAD: Yes (Authenticated Encryption with Associated Data)");
-        println!("    - Recommendation: ⭐ Recommended for most use cases");
+        println!("    - Recommendation: Recommended for most use cases");
         println!("    - Usage: --algorithm aes-256-gcm\n");
         
         println!("  • ChaCha20-Poly1305");
         println!("    - Key size: 256 bits");
         println!("    - Security: High");
         println!("    - AEAD: Yes");
-        println!("    - Recommendation: ⭐ Recommended, especially for mobile/embedded");
+        println!("    - Recommendation: Recommended, especially for mobile/embedded");
         println!("    - Usage: --algorithm chacha20-poly1305\n");
         
         println!("Symmetric Algorithms (Non-AEAD):");
@@ -716,20 +748,20 @@ impl Application {
         println!("    - Key size: 4096 bits");
         println!("    - Security: Very High");
         println!("    - AEAD: N/A (uses hybrid encryption with AES-256-GCM)");
-        println!("    - Recommendation: ⭐ Recommended for long-term security");
+        println!("    - Recommendation: Recommended for long-term security");
         println!("    - Usage: --algorithm rsa-oaep-4096\n");
         
         println!("  • ECIES-P256");
         println!("    - Curve: NIST P-256");
         println!("    - Security: High");
         println!("    - AEAD: N/A (uses hybrid encryption with AES-256-GCM)");
-        println!("    - Recommendation: ⭐ Recommended for efficiency");
+        println!("    - Recommendation: Recommended for efficiency");
         println!("    - Usage: --algorithm ecies-p256\n");
         
         println!("=== Key Derivation Functions ===\n");
         println!("  • Argon2id (default)");
         println!("    - Memory-hard, resistant to GPU/ASIC attacks");
-        println!("    - Recommendation: ⭐ Recommended for password-based encryption\n");
+        println!("    - Recommendation: Recommended for password-based encryption\n");
         
         println!("  • PBKDF2-SHA256");
         println!("    - Standard KDF, widely supported");
@@ -742,7 +774,7 @@ impl Application {
         
         println!("  • Zstd (levels 1-22)");
         println!("    - Modern compression, better ratio and speed");
-        println!("    - Recommendation: ⭐ Recommended");
+        println!("    - Recommendation: Recommended");
         println!("    - Usage: --compress zstd --compression-level 3\n");
         
         println!("=== General Recommendations ===\n");
@@ -756,6 +788,7 @@ impl Application {
     }
     
     /// Handle the info command
+    /// 处理信息命令
     fn handle_info(&self, args: InfoArgs) -> Result<()> {
         use crate::cli;
         use crate::file_handler;
