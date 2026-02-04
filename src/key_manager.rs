@@ -2,6 +2,7 @@
 // 密钥管理器模块 - 密钥派生、生成和管理
 
 use crate::error::{CryptoError, Result};
+use crate::i18n;
 use ring::pbkdf2;
 use ring::rand::{SecureRandom, SystemRandom};
 use argon2::{Argon2, PasswordHasher};
@@ -377,9 +378,12 @@ pub fn generate_symmetric_key(algorithm: Algorithm) -> Result<SecureBytes> {
     let key_size = algorithm.key_size();
     
     if key_size == 0 {
-        return Err(CryptoError::InvalidArguments(
+        let msg = if i18n::is_zh() {
+            "无法为非对称算法生成对称密钥".to_string()
+        } else {
             "Cannot generate symmetric key for asymmetric algorithm".to_string()
-        ));
+        };
+        return Err(CryptoError::InvalidArguments(msg));
     }
     
     let rng = SystemRandom::new();

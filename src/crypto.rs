@@ -2,6 +2,7 @@
 // 加密模块 - 核心加密操作
 
 use crate::error::{CryptoError, Result};
+use crate::i18n;
 use crate::key_manager::SecureBytes;
 use aes_gcm::{
     aead::{Aead, KeyInit, Payload},
@@ -73,7 +74,14 @@ pub fn generate_iv(length: usize) -> Result<Vec<u8>> {
     let mut iv = vec![0u8; length];
     
     rng.fill(&mut iv)
-        .map_err(|_| CryptoError::SystemError("Failed to generate IV".to_string()))?;
+        .map_err(|_| {
+            let msg = if i18n::is_zh() {
+                "生成 IV 失败".to_string()
+            } else {
+                "Failed to generate IV".to_string()
+            };
+            CryptoError::SystemError(msg)
+        })?;
     
     Ok(iv)
 }
@@ -128,12 +136,24 @@ pub fn encrypt_aes_256_gcm(
     // Encrypt and get ciphertext with tag appended / 加密并获取附加标签的密文
     let ciphertext_with_tag = cipher
         .encrypt(nonce, payload)
-        .map_err(|_| CryptoError::EncryptionFailed("AES-256-GCM encryption failed".to_string()))?;
+        .map_err(|_| {
+            let msg = if i18n::is_zh() {
+                "AES-256-GCM 加密失败".to_string()
+            } else {
+                "AES-256-GCM encryption failed".to_string()
+            };
+            CryptoError::EncryptionFailed(msg)
+        })?;
     
     // Split ciphertext and tag (tag is last 16 bytes) / 分离密文和标签（标签是最后 16 字节）
     let tag_len = 16;
     if ciphertext_with_tag.len() < tag_len {
-        return Err(CryptoError::EncryptionFailed("Invalid ciphertext length".to_string()));
+        let msg = if i18n::is_zh() {
+            "密文长度无效".to_string()
+        } else {
+            "Invalid ciphertext length".to_string()
+        };
+        return Err(CryptoError::EncryptionFailed(msg));
     }
     
     let split_point = ciphertext_with_tag.len() - tag_len;
@@ -247,12 +267,24 @@ pub fn encrypt_chacha20_poly1305(
     // Encrypt and get ciphertext with tag appended
     let ciphertext_with_tag = cipher
         .encrypt(nonce, payload)
-        .map_err(|_| CryptoError::EncryptionFailed("ChaCha20-Poly1305 encryption failed".to_string()))?;
+        .map_err(|_| {
+            let msg = if i18n::is_zh() {
+                "ChaCha20-Poly1305 加密失败".to_string()
+            } else {
+                "ChaCha20-Poly1305 encryption failed".to_string()
+            };
+            CryptoError::EncryptionFailed(msg)
+        })?;
     
     // Split ciphertext and tag (tag is last 16 bytes)
     let tag_len = 16;
     if ciphertext_with_tag.len() < tag_len {
-        return Err(CryptoError::EncryptionFailed("Invalid ciphertext length".to_string()));
+        let msg = if i18n::is_zh() {
+            "密文长度无效".to_string()
+        } else {
+            "Invalid ciphertext length".to_string()
+        };
+        return Err(CryptoError::EncryptionFailed(msg));
     }
     
     let split_point = ciphertext_with_tag.len() - tag_len;
@@ -356,7 +388,14 @@ pub fn encrypt_aes_256_cbc_hmac(
     
     let mut buffer = padded_plaintext.clone();
     let ciphertext = cipher.encrypt_padded_mut::<cbc::cipher::block_padding::NoPadding>(&mut buffer, padded_plaintext.len())
-        .map_err(|_| CryptoError::EncryptionFailed("AES-256-CBC encryption failed".to_string()))?
+        .map_err(|_| {
+            let msg = if i18n::is_zh() {
+                "AES-256-CBC 加密失败".to_string()
+            } else {
+                "AES-256-CBC encryption failed".to_string()
+            };
+            CryptoError::EncryptionFailed(msg)
+        })?
         .to_vec();
     
     // Compute HMAC-SHA256 over IV || ciphertext (Encrypt-then-MAC)
@@ -422,7 +461,14 @@ pub fn decrypt_aes_256_cbc_hmac(
     let mut buffer = ciphertext.to_vec();
     let plaintext = cipher
         .decrypt_padded_mut::<cbc::cipher::block_padding::NoPadding>(&mut buffer)
-        .map_err(|_| CryptoError::DecryptionFailed("AES-256-CBC decryption failed".to_string()))?;
+        .map_err(|_| {
+            let msg = if i18n::is_zh() {
+                "AES-256-CBC 解密失败".to_string()
+            } else {
+                "AES-256-CBC decryption failed".to_string()
+            };
+            CryptoError::DecryptionFailed(msg)
+        })?;
     
     // Remove PKCS7 padding
     let unpadded = pkcs7_unpad(plaintext)?;
@@ -443,23 +489,43 @@ fn pkcs7_pad(data: &[u8], block_size: usize) -> Vec<u8> {
 /// 从数据中移除 PKCS7 填充
 fn pkcs7_unpad(data: &[u8]) -> Result<&[u8]> {
     if data.is_empty() {
-        return Err(CryptoError::DecryptionFailed("Empty data for unpadding".to_string()));
+        let msg = if i18n::is_zh() {
+            "去填充数据为空".to_string()
+        } else {
+            "Empty data for unpadding".to_string()
+        };
+        return Err(CryptoError::DecryptionFailed(msg));
     }
     
     let padding_len = data[data.len() - 1] as usize;
     
     if padding_len == 0 || padding_len > 16 {
-        return Err(CryptoError::DecryptionFailed("Invalid padding".to_string()));
+        let msg = if i18n::is_zh() {
+            "填充无效".to_string()
+        } else {
+            "Invalid padding".to_string()
+        };
+        return Err(CryptoError::DecryptionFailed(msg));
     }
     
     if data.len() < padding_len {
-        return Err(CryptoError::DecryptionFailed("Invalid padding length".to_string()));
+        let msg = if i18n::is_zh() {
+            "填充长度无效".to_string()
+        } else {
+            "Invalid padding length".to_string()
+        };
+        return Err(CryptoError::DecryptionFailed(msg));
     }
     
     // Verify all padding bytes are correct
     for i in 0..padding_len {
         if data[data.len() - 1 - i] != padding_len as u8 {
-            return Err(CryptoError::DecryptionFailed("Invalid padding bytes".to_string()));
+            let msg = if i18n::is_zh() {
+                "填充字节无效".to_string()
+            } else {
+                "Invalid padding bytes".to_string()
+            };
+            return Err(CryptoError::DecryptionFailed(msg));
         }
     }
     
@@ -491,7 +557,14 @@ pub fn encrypt_rsa_oaep(
     let mut rng = rand::thread_rng();
     let ciphertext = public_key
         .encrypt(&mut rng, padding, plaintext)
-        .map_err(|_| CryptoError::EncryptionFailed("RSA-OAEP encryption failed".to_string()))?;
+        .map_err(|_| {
+            let msg = if i18n::is_zh() {
+                "RSA-OAEP 加密失败".to_string()
+            } else {
+                "RSA-OAEP encryption failed".to_string()
+            };
+            CryptoError::EncryptionFailed(msg)
+        })?;
     
     Ok(ciphertext)
 }
@@ -519,7 +592,14 @@ pub fn decrypt_rsa_oaep(
     // Decrypt the ciphertext
     let plaintext = private_key
         .decrypt(padding, ciphertext)
-        .map_err(|_| CryptoError::DecryptionFailed("RSA-OAEP decryption failed".to_string()))?;
+        .map_err(|_| {
+            let msg = if i18n::is_zh() {
+                "RSA-OAEP 解密失败".to_string()
+            } else {
+                "RSA-OAEP decryption failed".to_string()
+            };
+            CryptoError::DecryptionFailed(msg)
+        })?;
     
     Ok(plaintext)
 }
@@ -605,7 +685,12 @@ pub fn decrypt_ecies_p256(
     
     // Parse the encrypted data structure
     if ciphertext.len() < 2 {
-        return Err(CryptoError::DecryptionFailed("Invalid ciphertext format".to_string()));
+        let msg = if i18n::is_zh() {
+            "密文格式无效".to_string()
+        } else {
+            "Invalid ciphertext format".to_string()
+        };
+        return Err(CryptoError::DecryptionFailed(msg));
     }
     
     let mut offset = 0;
@@ -615,7 +700,12 @@ pub fn decrypt_ecies_p256(
     offset += 1;
     
     if ciphertext.len() < offset + ephemeral_public_len {
-        return Err(CryptoError::DecryptionFailed("Invalid ciphertext format".to_string()));
+        let msg = if i18n::is_zh() {
+            "密文格式无效".to_string()
+        } else {
+            "Invalid ciphertext format".to_string()
+        };
+        return Err(CryptoError::DecryptionFailed(msg));
     }
     
     let ephemeral_public_bytes = &ciphertext[offset..offset + ephemeral_public_len];
@@ -627,14 +717,24 @@ pub fn decrypt_ecies_p256(
     
     // Read IV
     if ciphertext.len() < offset + 1 {
-        return Err(CryptoError::DecryptionFailed("Invalid ciphertext format".to_string()));
+        let msg = if i18n::is_zh() {
+            "密文格式无效".to_string()
+        } else {
+            "Invalid ciphertext format".to_string()
+        };
+        return Err(CryptoError::DecryptionFailed(msg));
     }
     
     let iv_len = ciphertext[offset] as usize;
     offset += 1;
     
     if ciphertext.len() < offset + iv_len {
-        return Err(CryptoError::DecryptionFailed("Invalid ciphertext format".to_string()));
+        let msg = if i18n::is_zh() {
+            "密文格式无效".to_string()
+        } else {
+            "Invalid ciphertext format".to_string()
+        };
+        return Err(CryptoError::DecryptionFailed(msg));
     }
     
     let iv = ciphertext[offset..offset + iv_len].to_vec();
@@ -642,7 +742,12 @@ pub fn decrypt_ecies_p256(
     
     // Remaining data is ciphertext + tag (tag is last 16 bytes)
     if ciphertext.len() < offset + 16 {
-        return Err(CryptoError::DecryptionFailed("Invalid ciphertext format".to_string()));
+        let msg = if i18n::is_zh() {
+            "密文格式无效".to_string()
+        } else {
+            "Invalid ciphertext format".to_string()
+        };
+        return Err(CryptoError::DecryptionFailed(msg));
     }
     
     let encrypted_data = &ciphertext[offset..];
@@ -823,7 +928,14 @@ pub fn encrypt_stream_aes_256_gcm<R: Read, W: Write>(
     loop {
         // Read a chunk from the reader
         let bytes_read = reader.read(&mut buffer)
-            .map_err(|e| CryptoError::SystemError(format!("Failed to read data: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("读取数据失败：{}", e)
+                } else {
+                    format!("Failed to read data: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         
         if bytes_read == 0 {
             break; // End of stream
@@ -852,11 +964,25 @@ pub fn encrypt_stream_aes_256_gcm<R: Read, W: Write>(
         // Encrypt the chunk
         let ciphertext_with_tag = cipher
             .encrypt(nonce, payload)
-            .map_err(|_| CryptoError::EncryptionFailed("Streaming encryption failed".to_string()))?;
+            .map_err(|_| {
+                let msg = if i18n::is_zh() {
+                    "流式加密失败".to_string()
+                } else {
+                    "Streaming encryption failed".to_string()
+                };
+                CryptoError::EncryptionFailed(msg)
+            })?;
         
         // Write encrypted chunk to output
         writer.write_all(&ciphertext_with_tag)
-            .map_err(|e| CryptoError::SystemError(format!("Failed to write encrypted data: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("写入加密数据失败：{}", e)
+                } else {
+                    format!("Failed to write encrypted data: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         
         chunk_counter += 1;
     }
@@ -906,7 +1032,14 @@ pub fn encrypt_stream_chacha20_poly1305<R: Read, W: Write>(
     loop {
         // Read a chunk from the reader
         let bytes_read = reader.read(&mut buffer)
-            .map_err(|e| CryptoError::SystemError(format!("Failed to read data: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("读取数据失败：{}", e)
+                } else {
+                    format!("Failed to read data: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         
         if bytes_read == 0 {
             break; // End of stream
@@ -934,11 +1067,25 @@ pub fn encrypt_stream_chacha20_poly1305<R: Read, W: Write>(
         // Encrypt the chunk
         let ciphertext_with_tag = cipher
             .encrypt(nonce, payload)
-            .map_err(|_| CryptoError::EncryptionFailed("Streaming encryption failed".to_string()))?;
+            .map_err(|_| {
+                let msg = if i18n::is_zh() {
+                    "流式加密失败".to_string()
+                } else {
+                    "Streaming encryption failed".to_string()
+                };
+                CryptoError::EncryptionFailed(msg)
+            })?;
         
         // Write encrypted chunk to output
         writer.write_all(&ciphertext_with_tag)
-            .map_err(|e| CryptoError::SystemError(format!("Failed to write encrypted data: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("写入加密数据失败：{}", e)
+                } else {
+                    format!("Failed to write encrypted data: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         
         chunk_counter += 1;
     }
@@ -998,10 +1145,22 @@ pub fn decrypt_stream_aes_256_gcm<R: Read, W: Write>(
         // Last chunk might be smaller, but we don't know the exact size
         // So we try to read up to max_encrypted_chunk_size
         let bytes_read = reader.read(&mut buffer)
-            .map_err(|e| CryptoError::SystemError(format!("Failed to read encrypted data: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("读取加密数据失败：{}", e)
+                } else {
+                    format!("Failed to read encrypted data: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         
         if bytes_read == 0 {
-            return Err(CryptoError::DecryptionFailed("Unexpected end of stream".to_string()));
+            let msg = if i18n::is_zh() {
+                "数据流意外结束".to_string()
+            } else {
+                "Unexpected end of stream".to_string()
+            };
+            return Err(CryptoError::DecryptionFailed(msg));
         }
         
         // Prepare AAD with chunk counter
@@ -1030,7 +1189,14 @@ pub fn decrypt_stream_aes_256_gcm<R: Read, W: Write>(
         
         // Write decrypted chunk to output
         writer.write_all(&plaintext)
-            .map_err(|e| CryptoError::SystemError(format!("Failed to write decrypted data: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("写入解密数据失败：{}", e)
+                } else {
+                    format!("Failed to write decrypted data: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
     }
     
     Ok(())
@@ -1079,10 +1245,22 @@ pub fn decrypt_stream_chacha20_poly1305<R: Read, W: Write>(
     for chunk_counter in 0..total_chunks {
         // Read encrypted chunk
         let bytes_read = reader.read(&mut buffer)
-            .map_err(|e| CryptoError::SystemError(format!("Failed to read encrypted data: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("读取加密数据失败：{}", e)
+                } else {
+                    format!("Failed to read encrypted data: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         
         if bytes_read == 0 {
-            return Err(CryptoError::DecryptionFailed("Unexpected end of stream".to_string()));
+            let msg = if i18n::is_zh() {
+                "数据流意外结束".to_string()
+            } else {
+                "Unexpected end of stream".to_string()
+            };
+            return Err(CryptoError::DecryptionFailed(msg));
         }
         
         // Prepare AAD with chunk counter
@@ -1111,7 +1289,14 @@ pub fn decrypt_stream_chacha20_poly1305<R: Read, W: Write>(
         
         // Write decrypted chunk to output
         writer.write_all(&plaintext)
-            .map_err(|e| CryptoError::SystemError(format!("Failed to write decrypted data: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("写入解密数据失败：{}", e)
+                } else {
+                    format!("Failed to write decrypted data: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
     }
     
     Ok(())

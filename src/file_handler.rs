@@ -2,6 +2,7 @@
 // 文件处理器模块 - 文件 I/O、流式处理和目录操作
 
 use crate::error::{CryptoError, Result};
+use crate::i18n;
 use crate::key_manager::KdfAlgorithm;
 use crate::compression::CompressionAlgorithm;
 use std::io::{Read, Write};
@@ -214,14 +215,24 @@ impl EncryptedFileHeader {
         // Salt Length and Salt
         let salt = self.salt.as_ref().map(|s| s.as_slice()).unwrap_or(&[]);
         if salt.len() > 255 {
-            return Err(CryptoError::InvalidArguments("Salt too long (max 255 bytes)".to_string()));
+            let msg = if i18n::is_zh() {
+                "盐过长（最大 255 字节）".to_string()
+            } else {
+                "Salt too long (max 255 bytes)".to_string()
+            };
+            return Err(CryptoError::InvalidArguments(msg));
         }
         header_data.push(salt.len() as u8);
         header_data.extend_from_slice(salt);
         
         // IV Length and IV
         if self.iv.len() > 255 {
-            return Err(CryptoError::InvalidArguments("IV too long (max 255 bytes)".to_string()));
+            let msg = if i18n::is_zh() {
+                "IV 过长（最大 255 字节）".to_string()
+            } else {
+                "IV too long (max 255 bytes)".to_string()
+            };
+            return Err(CryptoError::InvalidArguments(msg));
         }
         header_data.push(self.iv.len() as u8);
         header_data.extend_from_slice(&self.iv);
@@ -231,7 +242,12 @@ impl EncryptedFileHeader {
         
         // Metadata Length and Metadata
         if self.metadata.len() > 65535 {
-            return Err(CryptoError::InvalidArguments("Metadata too long (max 65535 bytes)".to_string()));
+            let msg = if i18n::is_zh() {
+                "元数据过长（最大 65535 字节）".to_string()
+            } else {
+                "Metadata too long (max 65535 bytes)".to_string()
+            };
+            return Err(CryptoError::InvalidArguments(msg));
         }
         let metadata_len = self.metadata.len() as u16;
         header_data.extend_from_slice(&metadata_len.to_le_bytes());
@@ -244,11 +260,25 @@ impl EncryptedFileHeader {
         
         // Write header data to writer
         writer.write_all(&header_data)
-            .map_err(|e| CryptoError::SystemError(format!("Failed to write header: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("写入文件头失败：{}", e)
+                } else {
+                    format!("Failed to write header: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         
         // Write checksum (32 bytes)
         writer.write_all(&checksum)
-            .map_err(|e| CryptoError::SystemError(format!("Failed to write header checksum: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("写入文件头校验和失败：{}", e)
+                } else {
+                    format!("Failed to write header checksum: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         
         Ok(())
     }
@@ -521,9 +551,12 @@ pub fn encrypt_file(
             (result.ciphertext, result.iv, result.tag, result.mac)
         }
         _ => {
-            return Err(CryptoError::InvalidArguments(
+            let msg = if i18n::is_zh() {
+                "不支持使用非对称算法直接加密文件".to_string()
+            } else {
                 "Asymmetric algorithms not supported for direct file encryption".to_string()
-            ));
+            };
+            return Err(CryptoError::InvalidArguments(msg));
         }
     };
     
@@ -628,14 +661,22 @@ pub fn decrypt_file(
         Algorithm::Aes256Gcm | Algorithm::ChaCha20Poly1305 => 16, // AEAD tag
         Algorithm::Aes256Cbc => 32, // HMAC-SHA256
         _ => {
-            return Err(CryptoError::InvalidArguments(
+            let msg = if i18n::is_zh() {
+                "不支持使用非对称算法直接解密文件".to_string()
+            } else {
                 "Asymmetric algorithms not supported for direct file decryption".to_string()
-            ));
+            };
+            return Err(CryptoError::InvalidArguments(msg));
         }
     };
     
     if encrypted_data.len() < auth_size {
-        return Err(CryptoError::DecryptionFailed("File too short".to_string()));
+        let msg = if i18n::is_zh() {
+            "文件过短".to_string()
+        } else {
+            "File too short".to_string()
+        };
+        return Err(CryptoError::DecryptionFailed(msg));
     }
     
     // Split ciphertext and authentication data
@@ -673,9 +714,12 @@ pub fn decrypt_file(
             crypto::decrypt_aes_256_cbc_hmac(ciphertext, &context)?
         }
         _ => {
-            return Err(CryptoError::InvalidArguments(
+            let msg = if i18n::is_zh() {
+                "不支持用于文件解密的算法".to_string()
+            } else {
                 "Unsupported algorithm for file decryption".to_string()
-            ));
+            };
+            return Err(CryptoError::InvalidArguments(msg));
         }
     };
     
@@ -709,6 +753,7 @@ pub fn decrypt_file(
 /// 此模块提供原子文件操作的实用工具，即使在出现故障或崩溃时也能确保数据完整性。
 pub mod atomic {
     use crate::error::{CryptoError, Result};
+    use crate::i18n;
     use std::fs::File;
     use std::io::Write;
     use std::path::{Path, PathBuf};
@@ -747,7 +792,12 @@ pub mod atomic {
         /// 获取底层文件的可变引用
         pub fn file_mut(&mut self) -> Result<&mut File> {
             self.file.as_mut().ok_or_else(|| {
-                CryptoError::SystemError("Atomic file already closed".to_string())
+                let msg = if i18n::is_zh() {
+                    "原子文件已关闭".to_string()
+                } else {
+                    "Atomic file already closed".to_string()
+                };
+                CryptoError::SystemError(msg)
             })
         }
         

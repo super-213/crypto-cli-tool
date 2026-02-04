@@ -6,6 +6,7 @@ use crate::error::{CryptoError, Result};
 use crate::key_manager::{SecureBytes, KdfAlgorithm, AsymmetricAlgorithm};
 use crate::file_handler::Algorithm as FileAlgorithm;
 use crate::compression::CompressionAlgorithm;
+use crate::i18n;
 use std::path::Path;
 
 /// Parse algorithm string to FileAlgorithm enum
@@ -18,7 +19,14 @@ fn parse_algorithm(algo_str: &str) -> Result<FileAlgorithm> {
         "rsa-oaep-2048" | "rsa2048" => Ok(FileAlgorithm::RsaOaep2048),
         "rsa-oaep-4096" | "rsa4096" => Ok(FileAlgorithm::RsaOaep4096),
         "ecies-p256" | "ecies" => Ok(FileAlgorithm::EciesP256),
-        _ => Err(CryptoError::InvalidArguments(format!("Unknown algorithm: {}", algo_str))),
+        _ => {
+            let msg = if i18n::is_zh() {
+                format!("未知算法：{}", algo_str)
+            } else {
+                format!("Unknown algorithm: {}", algo_str)
+            };
+            Err(CryptoError::InvalidArguments(msg))
+        }
     }
 }
 
@@ -29,9 +37,12 @@ fn parse_compression(comp_str: &str, level: Option<u32>) -> Result<CompressionAl
         "gzip" => {
             if let Some(lvl) = level {
                 if lvl < 1 || lvl > 9 {
-                    return Err(CryptoError::InvalidArguments(
+                    let msg = if i18n::is_zh() {
+                        "Gzip 压缩级别必须在 1 到 9 之间".to_string()
+                    } else {
                         "Gzip compression level must be between 1 and 9".to_string()
-                    ));
+                    };
+                    return Err(CryptoError::InvalidArguments(msg));
                 }
             }
             Ok(CompressionAlgorithm::Gzip)
@@ -39,14 +50,24 @@ fn parse_compression(comp_str: &str, level: Option<u32>) -> Result<CompressionAl
         "zstd" => {
             if let Some(lvl) = level {
                 if lvl < 1 || lvl > 22 {
-                    return Err(CryptoError::InvalidArguments(
+                    let msg = if i18n::is_zh() {
+                        "Zstd 压缩级别必须在 1 到 22 之间".to_string()
+                    } else {
                         "Zstd compression level must be between 1 and 22".to_string()
-                    ));
+                    };
+                    return Err(CryptoError::InvalidArguments(msg));
                 }
             }
             Ok(CompressionAlgorithm::Zstd)
         }
-        _ => Err(CryptoError::InvalidArguments(format!("Unknown compression algorithm: {}", comp_str))),
+        _ => {
+            let msg = if i18n::is_zh() {
+                format!("未知压缩算法：{}", comp_str)
+            } else {
+                format!("Unknown compression algorithm: {}", comp_str)
+            };
+            Err(CryptoError::InvalidArguments(msg))
+        }
     }
 }
 
@@ -82,7 +103,14 @@ fn parse_keygen_algorithm(algo_str: &str) -> Result<KeygenAlgorithm> {
         "ecies-p256" | "ecies" | "p256" => {
             Ok(KeygenAlgorithm::Asymmetric(AsymmetricAlgorithm::EciesP256))
         }
-        _ => Err(CryptoError::InvalidArguments(format!("Unknown algorithm: {}", algo_str))),
+        _ => {
+            let msg = if i18n::is_zh() {
+                format!("未知算法：{}", algo_str)
+            } else {
+                format!("Unknown algorithm: {}", algo_str)
+            };
+            Err(CryptoError::InvalidArguments(msg))
+        }
     }
 }
 
@@ -193,15 +221,20 @@ impl Application {
         use crate::cli;
         
         // Log verbose information
-        cli::log_verbose(args.verbose, "Starting encryption operation");
+        cli::log_verbose(args.verbose, i18n::t("Starting encryption operation", "开始加密操作"));
         
         // Parse algorithm from string
         let algorithm = parse_algorithm(&args.algorithm)?;
-        cli::log_verbose(args.verbose, &format!("Using algorithm: {:?}", algorithm));
+        let algo_msg = if i18n::is_zh() {
+            format!("使用算法：{:?}", algorithm)
+        } else {
+            format!("Using algorithm: {:?}", algorithm)
+        };
+        cli::log_verbose(args.verbose, &algo_msg);
         
         // Obtain key from specified source
         let (key, kdf_params) = self.obtain_key_for_encryption(&args)?;
-        cli::log_verbose(args.verbose, "Key obtained successfully");
+        cli::log_verbose(args.verbose, i18n::t("Key obtained successfully", "密钥获取成功"));
         
         // Parse compression if specified
         let compression = if let Some(comp_str) = &args.compress {
@@ -211,7 +244,12 @@ impl Application {
         };
         
         if let Some(comp) = compression {
-            cli::log_verbose(args.verbose, &format!("Using compression: {:?}", comp));
+            let comp_msg = if i18n::is_zh() {
+                format!("使用压缩：{:?}", comp)
+            } else {
+                format!("Using compression: {:?}", comp)
+            };
+            cli::log_verbose(args.verbose, &comp_msg);
         }
         
         // Determine output path
@@ -221,30 +259,58 @@ impl Application {
             path
         });
         
-        cli::log_verbose(args.verbose, &format!("Input: {}", args.input.display()));
-        cli::log_verbose(args.verbose, &format!("Output: {}", output_path.display()));
+        let input_msg = if i18n::is_zh() {
+            format!("输入：{}", args.input.display())
+        } else {
+            format!("Input: {}", args.input.display())
+        };
+        let output_msg = if i18n::is_zh() {
+            format!("输出：{}", output_path.display())
+        } else {
+            format!("Output: {}", output_path.display())
+        };
+        cli::log_verbose(args.verbose, &input_msg);
+        cli::log_verbose(args.verbose, &output_msg);
         
         // Determine if input is file or directory
         if args.input.is_file() {
             // Encrypt single file
-            cli::log_verbose(args.verbose, "Encrypting file...");
+            cli::log_verbose(args.verbose, i18n::t("Encrypting file...", "正在加密文件..."));
             self.encrypt_file(&args.input, &output_path, &key, algorithm, compression, kdf_params)?;
-            cli::print_success(&format!("File encrypted successfully: {}", output_path.display()));
+            let success_msg = if i18n::is_zh() {
+                format!("文件加密成功：{}", output_path.display())
+            } else {
+                format!("File encrypted successfully: {}", output_path.display())
+            };
+            cli::print_success(&success_msg);
         } else if args.input.is_dir() {
             // Encrypt directory
             if !args.recursive {
-                return Err(CryptoError::InvalidArguments(
+                let msg = if i18n::is_zh() {
+                    format!(
+                        "输入路径 '{}' 是目录。请使用 --recursive（或 -r）参数加密目录。\n\
+                        示例：crypto-cli-tool encrypt -i {} --recursive",
+                        args.input.display(),
+                        args.input.display()
+                    )
+                } else {
                     format!(
                         "The input path '{}' is a directory. Use --recursive (or -r) flag to encrypt directories.\n\
                         Example: crypto-cli-tool encrypt -i {} --recursive",
                         args.input.display(),
                         args.input.display()
                     )
-                ));
+                };
+                return Err(CryptoError::InvalidArguments(msg));
             }
-            cli::log_verbose(args.verbose, "Encrypting directory...");
+            cli::log_verbose(args.verbose, i18n::t("Encrypting directory...", "正在加密目录..."));
             self.encrypt_directory(&args.input, &output_path, &key, algorithm, compression, kdf_params)?;
-            cli::print_success(&format!("Directory encrypted successfully: {}", output_path.display()));
+            let success_msg = if i18n::is_zh() {
+                format!("目录加密成功：{}", output_path.display())
+            } else {
+                format!("Directory encrypted successfully: {}", output_path.display())
+            };
+            cli::print_success(&success_msg);
         } else {
             return Err(CryptoError::FileNotFound(args.input.clone()));
         }
@@ -264,8 +330,8 @@ impl Application {
             "password" => {
                 // Prompt for password with confirmation
                 let password = cli::prompt_password_with_confirmation(
-                    "Enter password: ",
-                    "Confirm password: "
+                    i18n::t("Enter password: ", "请输入密码："),
+                    i18n::t("Confirm password: ", "确认密码："),
                 )?;
                 
                 // Generate salt
@@ -298,9 +364,14 @@ impl Application {
             "env" => {
                 // Read password from environment variable
                 let var_name = args.password_env.as_ref()
-                    .ok_or_else(|| CryptoError::MissingRequiredArgument(
-                        "--password-env required when using key-source=env".to_string()
-                    ))?;
+                    .ok_or_else(|| {
+                        let msg = if i18n::is_zh() {
+                            "使用 key-source=env 时必须指定 --password-env".to_string()
+                        } else {
+                            "--password-env required when using key-source=env".to_string()
+                        };
+                        CryptoError::MissingRequiredArgument(msg)
+                    })?;
                 
                 let password = cli::read_password_from_env(var_name)?;
                 
@@ -334,9 +405,14 @@ impl Application {
             "keyfile" => {
                 // Load key from file
                 let keyfile_path = args.keyfile.as_ref()
-                    .ok_or_else(|| CryptoError::MissingRequiredArgument(
-                        "--keyfile required when using key-source=keyfile".to_string()
-                    ))?;
+                    .ok_or_else(|| {
+                        let msg = if i18n::is_zh() {
+                            "使用 key-source=keyfile 时必须指定 --keyfile".to_string()
+                        } else {
+                            "--keyfile required when using key-source=keyfile".to_string()
+                        };
+                        CryptoError::MissingRequiredArgument(msg)
+                    })?;
                 
                 let key = cli::load_key_from_file(keyfile_path)?;
                 
@@ -347,9 +423,14 @@ impl Application {
                 
                 Ok((key, None))
             }
-            _ => Err(CryptoError::InvalidArguments(
-                format!("Unknown key source: {}", args.key_source)
-            )),
+            _ => {
+                let msg = if i18n::is_zh() {
+                    format!("未知的密钥来源：{}", args.key_source)
+                } else {
+                    format!("Unknown key source: {}", args.key_source)
+                };
+                Err(CryptoError::InvalidArguments(msg))
+            }
         }
     }
     
@@ -421,7 +502,7 @@ impl Application {
         use crate::file_handler;
         
         // Log verbose information
-        cli::log_verbose(args.verbose, "Starting decryption operation");
+        cli::log_verbose(args.verbose, i18n::t("Starting decryption operation", "开始解密操作"));
         
         // Read encrypted file header to determine type
         let input_file = std::fs::File::open(&args.input)
@@ -438,12 +519,22 @@ impl Application {
         let mut reader = std::io::BufReader::new(input_file);
         let header = file_handler::EncryptedFileHeader::read_from(&mut reader)?;
         
-        cli::log_verbose(args.verbose, &format!("Algorithm: {:?}", header.algorithm));
-        cli::log_verbose(args.verbose, &format!("Compressed: {}", header.compressed));
+        let algo_msg = if i18n::is_zh() {
+            format!("算法：{:?}", header.algorithm)
+        } else {
+            format!("Algorithm: {:?}", header.algorithm)
+        };
+        let comp_msg = if i18n::is_zh() {
+            format!("是否压缩：{}", header.compressed)
+        } else {
+            format!("Compressed: {}", header.compressed)
+        };
+        cli::log_verbose(args.verbose, &algo_msg);
+        cli::log_verbose(args.verbose, &comp_msg);
         
         // Obtain key from specified source
         let key = self.obtain_key_for_decryption(&args, &header)?;
-        cli::log_verbose(args.verbose, "Key obtained successfully");
+        cli::log_verbose(args.verbose, i18n::t("Key obtained successfully", "密钥获取成功"));
         
         // Determine output path
         let output_path = args.output.clone().unwrap_or_else(|| {
@@ -461,14 +552,24 @@ impl Application {
             path
         });
         
-        cli::log_verbose(args.verbose, &format!("Input: {}", args.input.display()));
-        cli::log_verbose(args.verbose, &format!("Output: {}", output_path.display()));
+        let input_msg = if i18n::is_zh() {
+            format!("输入：{}", args.input.display())
+        } else {
+            format!("Input: {}", args.input.display())
+        };
+        let output_msg = if i18n::is_zh() {
+            format!("输出：{}", output_path.display())
+        } else {
+            format!("Output: {}", output_path.display())
+        };
+        cli::log_verbose(args.verbose, &input_msg);
+        cli::log_verbose(args.verbose, &output_msg);
         
         // Check if this is a directory archive by trying to detect archive magic
         // We'll decrypt first, then check if it's an archive
         let temp_decrypted = std::env::temp_dir().join("crypto_cli_decrypted.tmp");
         
-        cli::log_verbose(args.verbose, "Decrypting file...");
+        cli::log_verbose(args.verbose, i18n::t("Decrypting file...", "正在解密文件..."));
         file_handler::decrypt_file(&args.input, &temp_decrypted, &key)?;
         
         // Try to read as archive
@@ -478,19 +579,29 @@ impl Application {
         let is_archive = decrypted_data.len() >= 6 && &decrypted_data[0..6] == b"CRYTAR";
         
         if is_archive {
-            cli::log_verbose(args.verbose, "Detected directory archive, extracting...");
+            cli::log_verbose(args.verbose, i18n::t("Detected directory archive, extracting...", "检测到目录归档，正在解压..."));
             
             // Extract archive to output directory
             use crate::archive;
             archive::extract_archive(&decrypted_data, &output_path)?;
             
-            cli::print_success(&format!("Directory decrypted successfully: {}", output_path.display()));
+            let success_msg = if i18n::is_zh() {
+                format!("目录解密成功：{}", output_path.display())
+            } else {
+                format!("Directory decrypted successfully: {}", output_path.display())
+            };
+            cli::print_success(&success_msg);
         } else {
             // It's a regular file, just move the temp file to output
             std::fs::rename(&temp_decrypted, &output_path)
                 .map_err(|e| CryptoError::FileWriteError(output_path.clone(), e))?;
             
-            cli::print_success(&format!("File decrypted successfully: {}", output_path.display()));
+            let success_msg = if i18n::is_zh() {
+                format!("文件解密成功：{}", output_path.display())
+            } else {
+                format!("File decrypted successfully: {}", output_path.display())
+            };
+            cli::print_success(&success_msg);
         }
         
         // Clean up temp file if it still exists
@@ -512,7 +623,7 @@ impl Application {
         match args.key_source.as_str() {
             "password" => {
                 // Prompt for password
-                let password = cli::prompt_password("Enter password: ")?;
+                let password = cli::prompt_password(i18n::t("Enter password: ", "请输入密码："))?;
                 
                 // Check if KDF was used
                 if let (Some(kdf), Some(iterations), Some(salt)) = 
@@ -539,17 +650,25 @@ impl Application {
                     };
                     Ok(key)
                 } else {
-                    Err(CryptoError::InvalidArguments(
+                    let msg = if i18n::is_zh() {
+                        "文件未使用基于密码的加密方式".to_string()
+                    } else {
                         "File was not encrypted with password-based encryption".to_string()
-                    ))
+                    };
+                    Err(CryptoError::InvalidArguments(msg))
                 }
             }
             "env" => {
                 // Read password from environment variable
                 let var_name = args.password_env.as_ref()
-                    .ok_or_else(|| CryptoError::MissingRequiredArgument(
-                        "--password-env required when using key-source=env".to_string()
-                    ))?;
+                    .ok_or_else(|| {
+                        let msg = if i18n::is_zh() {
+                            "使用 key-source=env 时必须指定 --password-env".to_string()
+                        } else {
+                            "--password-env required when using key-source=env".to_string()
+                        };
+                        CryptoError::MissingRequiredArgument(msg)
+                    })?;
                 
                 let password = cli::read_password_from_env(var_name)?;
                 
@@ -578,17 +697,25 @@ impl Application {
                     };
                     Ok(key)
                 } else {
-                    Err(CryptoError::InvalidArguments(
+                    let msg = if i18n::is_zh() {
+                        "文件未使用基于密码的加密方式".to_string()
+                    } else {
                         "File was not encrypted with password-based encryption".to_string()
-                    ))
+                    };
+                    Err(CryptoError::InvalidArguments(msg))
                 }
             }
             "keyfile" => {
                 // Load key from file
                 let keyfile_path = args.keyfile.as_ref()
-                    .ok_or_else(|| CryptoError::MissingRequiredArgument(
-                        "--keyfile required when using key-source=keyfile".to_string()
-                    ))?;
+                    .ok_or_else(|| {
+                        let msg = if i18n::is_zh() {
+                            "使用 key-source=keyfile 时必须指定 --keyfile".to_string()
+                        } else {
+                            "--keyfile required when using key-source=keyfile".to_string()
+                        };
+                        CryptoError::MissingRequiredArgument(msg)
+                    })?;
                 
                 let key = cli::load_key_from_file(keyfile_path)?;
                 
@@ -599,9 +726,14 @@ impl Application {
                 
                 Ok(key)
             }
-            _ => Err(CryptoError::InvalidArguments(
-                format!("Unknown key source: {}", args.key_source)
-            )),
+            _ => {
+                let msg = if i18n::is_zh() {
+                    format!("未知的密钥来源：{}", args.key_source)
+                } else {
+                    format!("Unknown key source: {}", args.key_source)
+                };
+                Err(CryptoError::InvalidArguments(msg))
+            }
         }
     }
     
@@ -611,11 +743,16 @@ impl Application {
         use crate::cli;
         use crate::key_manager;
         
-        cli::log_verbose(args.verbose, "Starting key generation");
+        cli::log_verbose(args.verbose, i18n::t("Starting key generation", "开始生成密钥"));
         
         // Parse algorithm
         let algorithm = parse_keygen_algorithm(&args.algorithm)?;
-        cli::log_verbose(args.verbose, &format!("Generating keys for: {:?}", algorithm));
+        let gen_msg = if i18n::is_zh() {
+            format!("正在生成密钥：{:?}", algorithm)
+        } else {
+            format!("Generating keys for: {:?}", algorithm)
+        };
+        cli::log_verbose(args.verbose, &gen_msg);
         
         match algorithm {
             KeygenAlgorithm::Symmetric(sym_algo) => {
@@ -630,18 +767,29 @@ impl Application {
                         std::fs::write(key_path, key.as_ref())
                             .map_err(|e| CryptoError::FileWriteError(key_path.clone(), e))?;
                         
-                        cli::print_success(&format!("Symmetric key generated: {}", key_path.display()));
-                        cli::print_info("⚠ Keep this key file secure!");
+                        let success_msg = if i18n::is_zh() {
+                            format!("对称密钥已生成：{}", key_path.display())
+                        } else {
+                            format!("Symmetric key generated: {}", key_path.display())
+                        };
+                        cli::print_success(&success_msg);
+                        cli::print_info(i18n::t("⚠ Keep this key file secure!", "⚠ 请妥善保管此密钥文件！"));
                     }
                     "pem" => {
-                        return Err(CryptoError::InvalidArguments(
+                        let msg = if i18n::is_zh() {
+                            "对称密钥不支持 PEM 格式，请使用 'raw'".to_string()
+                        } else {
                             "PEM format not supported for symmetric keys, use 'raw'".to_string()
-                        ));
+                        };
+                        return Err(CryptoError::InvalidArguments(msg));
                     }
                     _ => {
-                        return Err(CryptoError::InvalidArguments(
+                        let msg = if i18n::is_zh() {
+                            format!("未知格式：{}", args.format)
+                        } else {
                             format!("Unknown format: {}", args.format)
-                        ));
+                        };
+                        return Err(CryptoError::InvalidArguments(msg));
                     }
                 }
             }
@@ -678,10 +826,20 @@ impl Application {
                         std::fs::write(&public_key_path, public_pem)
                             .map_err(|e| CryptoError::FileWriteError(public_key_path.clone(), e))?;
                         
-                        cli::print_success(&format!("Key pair generated:"));
-                        cli::print_info(&format!("  Private key: {}", private_key_path.display()));
-                        cli::print_info(&format!("  Public key: {}", public_key_path.display()));
-                        cli::print_info("⚠ Keep the private key secure!");
+                        cli::print_success(i18n::t("Key pair generated:", "密钥对已生成："));
+                        let pri_msg = if i18n::is_zh() {
+                            format!("  私钥：{}", private_key_path.display())
+                        } else {
+                            format!("  Private key: {}", private_key_path.display())
+                        };
+                        let pub_msg = if i18n::is_zh() {
+                            format!("  公钥：{}", public_key_path.display())
+                        } else {
+                            format!("  Public key: {}", public_key_path.display())
+                        };
+                        cli::print_info(&pri_msg);
+                        cli::print_info(&pub_msg);
+                        cli::print_info(i18n::t("⚠ Keep the private key secure!", "⚠ 请妥善保管私钥！"));
                     }
                     "raw" => {
                         // Write keys in raw DER format
@@ -691,15 +849,28 @@ impl Application {
                         std::fs::write(&public_key_path, &key_pair.public_key)
                             .map_err(|e| CryptoError::FileWriteError(public_key_path.clone(), e))?;
                         
-                        cli::print_success(&format!("Key pair generated:"));
-                        cli::print_info(&format!("  Private key: {}", private_key_path.display()));
-                        cli::print_info(&format!("  Public key: {}", public_key_path.display()));
-                        cli::print_info("⚠ Keep the private key secure!");
+                        cli::print_success(i18n::t("Key pair generated:", "密钥对已生成："));
+                        let pri_msg = if i18n::is_zh() {
+                            format!("  私钥：{}", private_key_path.display())
+                        } else {
+                            format!("  Private key: {}", private_key_path.display())
+                        };
+                        let pub_msg = if i18n::is_zh() {
+                            format!("  公钥：{}", public_key_path.display())
+                        } else {
+                            format!("  Public key: {}", public_key_path.display())
+                        };
+                        cli::print_info(&pri_msg);
+                        cli::print_info(&pub_msg);
+                        cli::print_info(i18n::t("⚠ Keep the private key secure!", "⚠ 请妥善保管私钥！"));
                     }
                     _ => {
-                        return Err(CryptoError::InvalidArguments(
+                        let msg = if i18n::is_zh() {
+                            format!("未知格式：{}", args.format)
+                        } else {
                             format!("Unknown format: {}", args.format)
-                        ));
+                        };
+                        return Err(CryptoError::InvalidArguments(msg));
                     }
                 }
             }
@@ -711,78 +882,153 @@ impl Application {
     /// Handle the list-algorithms command
     /// 处理列出算法命令
     fn handle_list_algorithms(&self) -> Result<()> {
-        println!("\n=== Supported Encryption Algorithms ===\n");
-        
-        println!("Symmetric Algorithms (AEAD):");
-        println!("  • AES-256-GCM");
-        println!("    - Key size: 256 bits");
-        println!("    - Security: High");
-        println!("    - AEAD: Yes (Authenticated Encryption with Associated Data)");
-        println!("    - Recommendation: Recommended for most use cases");
-        println!("    - Usage: --algorithm aes-256-gcm\n");
-        
-        println!("  • ChaCha20-Poly1305");
-        println!("    - Key size: 256 bits");
-        println!("    - Security: High");
-        println!("    - AEAD: Yes");
-        println!("    - Recommendation: Recommended, especially for mobile/embedded");
-        println!("    - Usage: --algorithm chacha20-poly1305\n");
-        
-        println!("Symmetric Algorithms (Non-AEAD):");
-        println!("  • AES-256-CBC (with HMAC-SHA256)");
-        println!("    - Key size: 256 bits");
-        println!("    - Security: High");
-        println!("    - AEAD: No (uses Encrypt-then-MAC)");
-        println!("    - Recommendation: Use only for compatibility");
-        println!("    - Usage: --algorithm aes-256-cbc\n");
-        
-        println!("Asymmetric Algorithms:");
-        println!("  • RSA-OAEP-2048");
-        println!("    - Key size: 2048 bits");
-        println!("    - Security: Medium-High");
-        println!("    - AEAD: N/A (uses hybrid encryption with AES-256-GCM)");
-        println!("    - Recommendation: Minimum for new applications");
-        println!("    - Usage: --algorithm rsa-oaep-2048\n");
-        
-        println!("  • RSA-OAEP-4096");
-        println!("    - Key size: 4096 bits");
-        println!("    - Security: Very High");
-        println!("    - AEAD: N/A (uses hybrid encryption with AES-256-GCM)");
-        println!("    - Recommendation: Recommended for long-term security");
-        println!("    - Usage: --algorithm rsa-oaep-4096\n");
-        
-        println!("  • ECIES-P256");
-        println!("    - Curve: NIST P-256");
-        println!("    - Security: High");
-        println!("    - AEAD: N/A (uses hybrid encryption with AES-256-GCM)");
-        println!("    - Recommendation: Recommended for efficiency");
-        println!("    - Usage: --algorithm ecies-p256\n");
-        
-        println!("=== Key Derivation Functions ===\n");
-        println!("  • Argon2id (default)");
-        println!("    - Memory-hard, resistant to GPU/ASIC attacks");
-        println!("    - Recommendation: Recommended for password-based encryption\n");
-        
-        println!("  • PBKDF2-SHA256");
-        println!("    - Standard KDF, widely supported");
-        println!("    - Recommendation: Use only for compatibility\n");
-        
-        println!("=== Compression Algorithms ===\n");
-        println!("  • Gzip (levels 1-9)");
-        println!("    - Standard compression, good compatibility");
-        println!("    - Usage: --compress gzip --compression-level 6\n");
-        
-        println!("  • Zstd (levels 1-22)");
-        println!("    - Modern compression, better ratio and speed");
-        println!("    - Recommendation: Recommended");
-        println!("    - Usage: --compress zstd --compression-level 3\n");
-        
-        println!("=== General Recommendations ===\n");
-        println!("  • For files: Use AES-256-GCM with password-based encryption");
-        println!("  • For directories: Use AES-256-GCM with Zstd compression");
-        println!("  • For public-key encryption: Use ECIES-P256 or RSA-OAEP-4096");
-        println!("  • Always use strong, unique passwords (12+ characters)");
-        println!("  • Store keys securely and never share private keys\n");
+        if i18n::is_zh() {
+            println!("\n=== 支持的加密算法 ===\n");
+
+            println!("对称算法（AEAD）：");
+            println!("  • AES-256-GCM");
+            println!("    - 密钥长度：256 位");
+            println!("    - 安全性：高");
+            println!("    - AEAD：是（带关联数据的认证加密）");
+            println!("    - 建议：适用于大多数场景");
+            println!("    - 用法：--algorithm aes-256-gcm\n");
+
+            println!("  • ChaCha20-Poly1305");
+            println!("    - 密钥长度：256 位");
+            println!("    - 安全性：高");
+            println!("    - AEAD：是");
+            println!("    - 建议：推荐，尤其适用于移动/嵌入式");
+            println!("    - 用法：--algorithm chacha20-poly1305\n");
+
+            println!("对称算法（非 AEAD）：");
+            println!("  • AES-256-CBC（带 HMAC-SHA256）");
+            println!("    - 密钥长度：256 位");
+            println!("    - 安全性：高");
+            println!("    - AEAD：否（使用 Encrypt-then-MAC）");
+            println!("    - 建议：仅用于兼容性需求");
+            println!("    - 用法：--algorithm aes-256-cbc\n");
+
+            println!("非对称算法：");
+            println!("  • RSA-OAEP-2048");
+            println!("    - 密钥长度：2048 位");
+            println!("    - 安全性：中-高");
+            println!("    - AEAD：不适用（使用 AES-256-GCM 混合加密）");
+            println!("    - 建议：新应用的最低推荐");
+            println!("    - 用法：--algorithm rsa-oaep-2048\n");
+
+            println!("  • RSA-OAEP-4096");
+            println!("    - 密钥长度：4096 位");
+            println!("    - 安全性：很高");
+            println!("    - AEAD：不适用（使用 AES-256-GCM 混合加密）");
+            println!("    - 建议：长期安全性推荐");
+            println!("    - 用法：--algorithm rsa-oaep-4096\n");
+
+            println!("  • ECIES-P256");
+            println!("    - 曲线：NIST P-256");
+            println!("    - 安全性：高");
+            println!("    - AEAD：不适用（使用 AES-256-GCM 混合加密）");
+            println!("    - 建议：效率优先推荐");
+            println!("    - 用法：--algorithm ecies-p256\n");
+
+            println!("=== 密钥派生函数 ===\n");
+            println!("  • Argon2id（默认）");
+            println!("    - 内存硬化，抗 GPU/ASIC 攻击");
+            println!("    - 建议：推荐用于基于密码的加密\n");
+
+            println!("  • PBKDF2-SHA256");
+            println!("    - 标准 KDF，广泛支持");
+            println!("    - 建议：仅用于兼容性需求\n");
+
+            println!("=== 压缩算法 ===\n");
+            println!("  • Gzip（级别 1-9）");
+            println!("    - 标准压缩，兼容性好");
+            println!("    - 用法：--compress gzip --compression-level 6\n");
+
+            println!("  • Zstd（级别 1-22）");
+            println!("    - 现代压缩，更优压缩率与速度");
+            println!("    - 建议：推荐");
+            println!("    - 用法：--compress zstd --compression-level 3\n");
+
+            println!("=== 通用建议 ===\n");
+            println!("  • 文件：使用 AES-256-GCM + 密码加密");
+            println!("  • 目录：使用 AES-256-GCM + Zstd 压缩");
+            println!("  • 公钥加密：使用 ECIES-P256 或 RSA-OAEP-4096");
+            println!("  • 始终使用强且唯一的密码（12+ 字符）");
+            println!("  • 安全存储密钥，切勿共享私钥\n");
+        } else {
+            println!("\n=== Supported Encryption Algorithms ===\n");
+
+            println!("Symmetric Algorithms (AEAD):");
+            println!("  • AES-256-GCM");
+            println!("    - Key size: 256 bits");
+            println!("    - Security: High");
+            println!("    - AEAD: Yes (Authenticated Encryption with Associated Data)");
+            println!("    - Recommendation: Recommended for most use cases");
+            println!("    - Usage: --algorithm aes-256-gcm\n");
+
+            println!("  • ChaCha20-Poly1305");
+            println!("    - Key size: 256 bits");
+            println!("    - Security: High");
+            println!("    - AEAD: Yes");
+            println!("    - Recommendation: Recommended, especially for mobile/embedded");
+            println!("    - Usage: --algorithm chacha20-poly1305\n");
+
+            println!("Symmetric Algorithms (Non-AEAD):");
+            println!("  • AES-256-CBC (with HMAC-SHA256)");
+            println!("    - Key size: 256 bits");
+            println!("    - Security: High");
+            println!("    - AEAD: No (uses Encrypt-then-MAC)");
+            println!("    - Recommendation: Use only for compatibility");
+            println!("    - Usage: --algorithm aes-256-cbc\n");
+
+            println!("Asymmetric Algorithms:");
+            println!("  • RSA-OAEP-2048");
+            println!("    - Key size: 2048 bits");
+            println!("    - Security: Medium-High");
+            println!("    - AEAD: N/A (uses hybrid encryption with AES-256-GCM)");
+            println!("    - Recommendation: Minimum for new applications");
+            println!("    - Usage: --algorithm rsa-oaep-2048\n");
+
+            println!("  • RSA-OAEP-4096");
+            println!("    - Key size: 4096 bits");
+            println!("    - Security: Very High");
+            println!("    - AEAD: N/A (uses hybrid encryption with AES-256-GCM)");
+            println!("    - Recommendation: Recommended for long-term security");
+            println!("    - Usage: --algorithm rsa-oaep-4096\n");
+
+            println!("  • ECIES-P256");
+            println!("    - Curve: NIST P-256");
+            println!("    - Security: High");
+            println!("    - AEAD: N/A (uses hybrid encryption with AES-256-GCM)");
+            println!("    - Recommendation: Recommended for efficiency");
+            println!("    - Usage: --algorithm ecies-p256\n");
+
+            println!("=== Key Derivation Functions ===\n");
+            println!("  • Argon2id (default)");
+            println!("    - Memory-hard, resistant to GPU/ASIC attacks");
+            println!("    - Recommendation: Recommended for password-based encryption\n");
+
+            println!("  • PBKDF2-SHA256");
+            println!("    - Standard KDF, widely supported");
+            println!("    - Recommendation: Use only for compatibility\n");
+
+            println!("=== Compression Algorithms ===\n");
+            println!("  • Gzip (levels 1-9)");
+            println!("    - Standard compression, good compatibility");
+            println!("    - Usage: --compress gzip --compression-level 6\n");
+
+            println!("  • Zstd (levels 1-22)");
+            println!("    - Modern compression, better ratio and speed");
+            println!("    - Recommendation: Recommended");
+            println!("    - Usage: --compress zstd --compression-level 3\n");
+
+            println!("=== General Recommendations ===\n");
+            println!("  • For files: Use AES-256-GCM with password-based encryption");
+            println!("  • For directories: Use AES-256-GCM with Zstd compression");
+            println!("  • For public-key encryption: Use ECIES-P256 or RSA-OAEP-4096");
+            println!("  • Always use strong, unique passwords (12+ characters)");
+            println!("  • Store keys securely and never share private keys\n");
+        }
         
         Ok(())
     }
@@ -793,7 +1039,7 @@ impl Application {
         use crate::cli;
         use crate::file_handler;
         
-        cli::log_verbose(args.verbose, "Reading encrypted file header");
+        cli::log_verbose(args.verbose, i18n::t("Reading encrypted file header", "读取加密文件头"));
         
         // Open and read the encrypted file header
         let input_file = std::fs::File::open(&args.input)
@@ -811,9 +1057,15 @@ impl Application {
         let header = file_handler::EncryptedFileHeader::read_from(&mut reader)?;
         
         // Display file information
-        println!("\n=== Encrypted File Information ===\n");
-        println!("File: {}", args.input.display());
-        println!("Format Version: {}", header.version);
+        if i18n::is_zh() {
+            println!("\n=== 加密文件信息 ===\n");
+            println!("文件：{}", args.input.display());
+            println!("格式版本：{}", header.version);
+        } else {
+            println!("\n=== Encrypted File Information ===\n");
+            println!("File: {}", args.input.display());
+            println!("Format Version: {}", header.version);
+        }
         
         // Display algorithm
         let algo_name = match header.algorithm {
@@ -824,14 +1076,22 @@ impl Application {
             FileAlgorithm::RsaOaep4096 => "RSA-OAEP-4096 (hybrid)",
             FileAlgorithm::EciesP256 => "ECIES-P256 (hybrid)",
         };
-        println!("Algorithm: {}", algo_name);
+        if i18n::is_zh() {
+            println!("算法：{}", algo_name);
+        } else {
+            println!("Algorithm: {}", algo_name);
+        }
         
         // Display AEAD support
         let is_aead = matches!(
             header.algorithm,
             FileAlgorithm::Aes256Gcm | FileAlgorithm::ChaCha20Poly1305
         );
-        println!("AEAD: {}", if is_aead { "Yes" } else { "No" });
+        if i18n::is_zh() {
+            println!("AEAD：{}", if is_aead { "是" } else { "否" });
+        } else {
+            println!("AEAD: {}", if is_aead { "Yes" } else { "No" });
+        }
         
         // Display KDF information
         if let Some(kdf) = header.kdf {
@@ -839,50 +1099,96 @@ impl Application {
                 KdfAlgorithm::Pbkdf2Sha256 => "PBKDF2-SHA256",
                 KdfAlgorithm::Argon2id => "Argon2id",
             };
-            println!("Key Derivation: {}", kdf_name);
+            if i18n::is_zh() {
+                println!("密钥派生：{}", kdf_name);
+            } else {
+                println!("Key Derivation: {}", kdf_name);
+            }
             
             if let Some(iterations) = header.kdf_iterations {
-                println!("KDF Iterations: {}", iterations);
+                if i18n::is_zh() {
+                    println!("KDF 迭代次数：{}", iterations);
+                } else {
+                    println!("KDF Iterations: {}", iterations);
+                }
             }
             
             if let Some(salt) = &header.salt {
-                println!("Salt Length: {} bytes", salt.len());
+                if i18n::is_zh() {
+                    println!("盐长度：{} 字节", salt.len());
+                } else {
+                    println!("Salt Length: {} bytes", salt.len());
+                }
             }
         } else {
-            println!("Key Derivation: None (raw key used)");
+            if i18n::is_zh() {
+                println!("密钥派生：无（使用原始密钥）");
+            } else {
+                println!("Key Derivation: None (raw key used)");
+            }
         }
         
         // Display IV information
-        println!("IV/Nonce Length: {} bytes", header.iv.len());
+        if i18n::is_zh() {
+            println!("IV/Nonce 长度：{} 字节", header.iv.len());
+        } else {
+            println!("IV/Nonce Length: {} bytes", header.iv.len());
+        }
         
         // Display compression information
         if header.compressed {
             let comp_name = match header.compression_algo {
                 Some(CompressionAlgorithm::Gzip) => "Gzip",
                 Some(CompressionAlgorithm::Zstd) => "Zstd",
-                None => "Unknown",
+                None => {
+                    if i18n::is_zh() { "未知" } else { "Unknown" }
+                }
             };
-            println!("Compression: {} (enabled)", comp_name);
+            if i18n::is_zh() {
+                println!("压缩：{}（已启用）", comp_name);
+            } else {
+                println!("Compression: {} (enabled)", comp_name);
+            }
         } else {
-            println!("Compression: None");
+            if i18n::is_zh() {
+                println!("压缩：无");
+            } else {
+                println!("Compression: None");
+            }
         }
         
         // Display original size
-        println!("Original Size: {} bytes", header.original_size);
+        if i18n::is_zh() {
+            println!("原始大小：{} 字节", header.original_size);
+        } else {
+            println!("Original Size: {} bytes", header.original_size);
+        }
         
         // Display metadata if present
         if !header.metadata.is_empty() {
-            println!("Metadata Length: {} bytes", header.metadata.len());
+            if i18n::is_zh() {
+                println!("元数据长度：{} 字节", header.metadata.len());
+            } else {
+                println!("Metadata Length: {} bytes", header.metadata.len());
+            }
             
             if args.verbose {
                 // Try to parse metadata as JSON
                 if let Ok(metadata_str) = String::from_utf8(header.metadata.clone()) {
-                    println!("Metadata Content:");
+                    if i18n::is_zh() {
+                        println!("元数据内容：");
+                    } else {
+                        println!("Metadata Content:");
+                    }
                     println!("{}", metadata_str);
                 }
             }
         } else {
-            println!("Metadata: None");
+            if i18n::is_zh() {
+                println!("元数据：无");
+            } else {
+                println!("Metadata: None");
+            }
         }
         
         println!();
@@ -890,4 +1196,3 @@ impl Application {
         Ok(())
     }
 }
-

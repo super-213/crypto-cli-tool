@@ -28,6 +28,7 @@
 use std::fmt;
 use std::io;
 use std::path::PathBuf;
+use crate::i18n;
 
 /// Main error type for the cryptographic CLI tool
 /// 加密 CLI 工具的主要错误类型
@@ -78,44 +79,182 @@ pub enum CryptoError {
 impl fmt::Display for CryptoError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            CryptoError::EncryptionFailed(msg) => write!(f, "Encryption failed: {}", msg),
-            CryptoError::DecryptionFailed(msg) => write!(f, "Decryption failed: {}", msg),
-            CryptoError::AuthenticationFailed => write!(f, "Authentication verification failed - possible tampering detected"),
-            CryptoError::InvalidKey => write!(f, "Invalid encryption key"),
-            CryptoError::InvalidIV => write!(f, "Invalid initialization vector"),
+            CryptoError::EncryptionFailed(msg) => {
+                let label = i18n::t("Encryption failed", "加密失败");
+                write!(f, "{}: {}", label, msg)
+            }
+            CryptoError::DecryptionFailed(msg) => {
+                let label = i18n::t("Decryption failed", "解密失败");
+                write!(f, "{}: {}", label, msg)
+            }
+            CryptoError::AuthenticationFailed => {
+                let msg = i18n::t(
+                    "Authentication verification failed - possible tampering detected",
+                    "认证验证失败 - 可能检测到篡改",
+                );
+                write!(f, "{}", msg)
+            }
+            CryptoError::InvalidKey => {
+                let msg = i18n::t("Invalid encryption key", "无效的加密密钥");
+                write!(f, "{}", msg)
+            }
+            CryptoError::InvalidIV => {
+                let msg = i18n::t("Invalid initialization vector", "无效的初始化向量");
+                write!(f, "{}", msg)
+            }
             CryptoError::InvalidKeySize { expected, got } => {
-                write!(f, "Invalid key size: expected {} bytes, got {} bytes", expected, got)
+                let msg = if i18n::is_zh() {
+                    format!("密钥长度无效：期望 {} 字节，实际 {} 字节", expected, got)
+                } else {
+                    format!("Invalid key size: expected {} bytes, got {} bytes", expected, got)
+                };
+                write!(f, "{}", msg)
             }
-            CryptoError::InvalidAlgorithm(algo) => write!(f, "Invalid or unsupported algorithm: {}", algo),
+            CryptoError::InvalidAlgorithm(algo) => {
+                let msg = if i18n::is_zh() {
+                    format!("无效或不支持的算法：{}", algo)
+                } else {
+                    format!("Invalid or unsupported algorithm: {}", algo)
+                };
+                write!(f, "{}", msg)
+            }
             
-            CryptoError::FileNotFound(path) => write!(f, "File not found: {}", path.display()),
-            CryptoError::FileReadError(path, err) => write!(f, "Failed to read file {}: {}", path.display(), err),
-            CryptoError::FileWriteError(path, err) => write!(f, "Failed to write file {}: {}", path.display(), err),
-            CryptoError::PermissionDenied(path) => write!(f, "Permission denied: {}", path.display()),
-            CryptoError::FileAlreadyExists(path) => write!(f, "File already exists: {}", path.display()),
-            CryptoError::DirectoryNotFound(path) => write!(f, "Directory not found: {}", path.display()),
-            CryptoError::NotAFile(path) => write!(f, "Not a file: {}", path.display()),
-            CryptoError::NotADirectory(path) => write!(f, "Not a directory: {}", path.display()),
+            CryptoError::FileNotFound(path) => {
+                let msg = if i18n::is_zh() {
+                    format!("文件未找到：{}", path.display())
+                } else {
+                    format!("File not found: {}", path.display())
+                };
+                write!(f, "{}", msg)
+            }
+            CryptoError::FileReadError(path, err) => {
+                let msg = if i18n::is_zh() {
+                    format!("读取文件失败 {}：{}", path.display(), err)
+                } else {
+                    format!("Failed to read file {}: {}", path.display(), err)
+                };
+                write!(f, "{}", msg)
+            }
+            CryptoError::FileWriteError(path, err) => {
+                let msg = if i18n::is_zh() {
+                    format!("写入文件失败 {}：{}", path.display(), err)
+                } else {
+                    format!("Failed to write file {}: {}", path.display(), err)
+                };
+                write!(f, "{}", msg)
+            }
+            CryptoError::PermissionDenied(path) => {
+                let msg = if i18n::is_zh() {
+                    format!("没有权限：{}", path.display())
+                } else {
+                    format!("Permission denied: {}", path.display())
+                };
+                write!(f, "{}", msg)
+            }
+            CryptoError::FileAlreadyExists(path) => {
+                let msg = if i18n::is_zh() {
+                    format!("文件已存在：{}", path.display())
+                } else {
+                    format!("File already exists: {}", path.display())
+                };
+                write!(f, "{}", msg)
+            }
+            CryptoError::DirectoryNotFound(path) => {
+                let msg = if i18n::is_zh() {
+                    format!("目录未找到：{}", path.display())
+                } else {
+                    format!("Directory not found: {}", path.display())
+                };
+                write!(f, "{}", msg)
+            }
+            CryptoError::NotAFile(path) => {
+                let msg = if i18n::is_zh() {
+                    format!("不是文件：{}", path.display())
+                } else {
+                    format!("Not a file: {}", path.display())
+                };
+                write!(f, "{}", msg)
+            }
+            CryptoError::NotADirectory(path) => {
+                let msg = if i18n::is_zh() {
+                    format!("不是目录：{}", path.display())
+                } else {
+                    format!("Not a directory: {}", path.display())
+                };
+                write!(f, "{}", msg)
+            }
             
-            CryptoError::InvalidFileFormat => write!(f, "Invalid or corrupted file format"),
-            CryptoError::UnsupportedVersion(version) => write!(f, "Unsupported file format version: {}", version),
-            CryptoError::CorruptedHeader => write!(f, "Corrupted file header - file may be damaged"),
-            CryptoError::InvalidMetadata => write!(f, "Invalid or corrupted metadata"),
+            CryptoError::InvalidFileFormat => {
+                let msg = i18n::t("Invalid or corrupted file format", "文件格式无效或已损坏");
+                write!(f, "{}", msg)
+            }
+            CryptoError::UnsupportedVersion(version) => {
+                let msg = if i18n::is_zh() {
+                    format!("不支持的文件格式版本：{}", version)
+                } else {
+                    format!("Unsupported file format version: {}", version)
+                };
+                write!(f, "{}", msg)
+            }
+            CryptoError::CorruptedHeader => {
+                let msg = i18n::t("Corrupted file header - file may be damaged", "文件头已损坏 - 文件可能受损");
+                write!(f, "{}", msg)
+            }
+            CryptoError::InvalidMetadata => {
+                let msg = i18n::t("Invalid or corrupted metadata", "元数据无效或已损坏");
+                write!(f, "{}", msg)
+            }
             
-            CryptoError::KeyDerivationFailed => write!(f, "Key derivation failed"),
-            CryptoError::InvalidPassword => write!(f, "Invalid password or authentication failed"),
-            CryptoError::KeyGenerationFailed => write!(f, "Key generation failed"),
+            CryptoError::KeyDerivationFailed => {
+                let msg = i18n::t("Key derivation failed", "密钥派生失败");
+                write!(f, "{}", msg)
+            }
+            CryptoError::InvalidPassword => {
+                let msg = i18n::t("Invalid password or authentication failed", "密码无效或认证失败");
+                write!(f, "{}", msg)
+            }
+            CryptoError::KeyGenerationFailed => {
+                let msg = i18n::t("Key generation failed", "密钥生成失败");
+                write!(f, "{}", msg)
+            }
             CryptoError::InvalidIterationCount { min, got } => {
-                write!(f, "Invalid iteration count: minimum {} required, got {}", min, got)
+                let msg = if i18n::is_zh() {
+                    format!("迭代次数无效：至少需要 {}，实际 {}", min, got)
+                } else {
+                    format!("Invalid iteration count: minimum {} required, got {}", min, got)
+                };
+                write!(f, "{}", msg)
             }
             
-            CryptoError::InvalidArguments(msg) => write!(f, "Invalid arguments: {}", msg),
-            CryptoError::MissingRequiredArgument(arg) => write!(f, "Missing required argument: {}", arg),
-            CryptoError::InvalidPath(path) => write!(f, "Invalid path: {}", path.display()),
+            CryptoError::InvalidArguments(msg) => {
+                let label = i18n::t("Invalid arguments", "参数无效");
+                write!(f, "{}: {}", label, msg)
+            }
+            CryptoError::MissingRequiredArgument(arg) => {
+                let label = i18n::t("Missing required argument", "缺少必需参数");
+                write!(f, "{}: {}", label, arg)
+            }
+            CryptoError::InvalidPath(path) => {
+                let msg = if i18n::is_zh() {
+                    format!("路径无效：{}", path.display())
+                } else {
+                    format!("Invalid path: {}", path.display())
+                };
+                write!(f, "{}", msg)
+            }
             
-            CryptoError::InsufficientMemory => write!(f, "Insufficient memory to complete operation"),
-            CryptoError::SystemError(msg) => write!(f, "System error: {}", msg),
-            CryptoError::IoError(err) => write!(f, "I/O error: {}", err),
+            CryptoError::InsufficientMemory => {
+                let msg = i18n::t("Insufficient memory to complete operation", "内存不足，无法完成操作");
+                write!(f, "{}", msg)
+            }
+            CryptoError::SystemError(msg) => {
+                let label = i18n::t("System error", "系统错误");
+                write!(f, "{}: {}", label, msg)
+            }
+            CryptoError::IoError(err) => {
+                let label = i18n::t("I/O error", "I/O 错误");
+                write!(f, "{}: {}", label, err)
+            }
         }
     }
 }
@@ -274,9 +413,12 @@ pub mod validation {
         }
         
         if iterations > MAX_KDF_ITERATIONS {
-            return Err(CryptoError::InvalidArguments(
+            let msg = if i18n::is_zh() {
+                format!("迭代次数过高：{}（最大：{}）", iterations, MAX_KDF_ITERATIONS)
+            } else {
                 format!("Iteration count too high: {} (max: {})", iterations, MAX_KDF_ITERATIONS)
-            ));
+            };
+            return Err(CryptoError::InvalidArguments(msg));
         }
         
         Ok(())

@@ -3,6 +3,7 @@
 
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use crate::i18n;
 
 /// Cryptographic CLI Tool - Encrypt and decrypt files and directories
 /// 加密 CLI 工具 - 加密和解密文件及目录
@@ -10,6 +11,11 @@ use std::path::PathBuf;
 #[command(name = "crypto-cli-tool")]
 #[command(author, version, about, long_about = None)]
 pub struct Cli {
+    /// Output language (en or zh)
+    /// 输出语言（en 或 zh）
+    #[arg(long, short = 'l', value_name = "LANG", default_value = "en", global = true, allow_hyphen_values = true)]
+    pub language: String,
+
     #[command(subcommand)]
     pub command: Command,
 }
@@ -194,10 +200,24 @@ use std::io::{self, Write};
 pub fn prompt_password(prompt: &str) -> Result<SecureString> {
     print!("{}", prompt);
     io::stdout().flush()
-        .map_err(|e| CryptoError::SystemError(format!("Failed to flush stdout: {}", e)))?;
+        .map_err(|e| {
+            let msg = if i18n::is_zh() {
+                format!("刷新标准输出失败：{}", e)
+            } else {
+                format!("Failed to flush stdout: {}", e)
+            };
+            CryptoError::SystemError(msg)
+        })?;
     
     let password = rpassword::read_password()
-        .map_err(|e| CryptoError::SystemError(format!("Failed to read password: {}", e)))?;
+        .map_err(|e| {
+            let msg = if i18n::is_zh() {
+                format!("读取密码失败：{}", e)
+            } else {
+                format!("Failed to read password: {}", e)
+            };
+            CryptoError::SystemError(msg)
+        })?;
     
     Ok(SecureString::from(password))
 }
@@ -249,9 +269,14 @@ use std::env;
 /// A SecureString containing the password / 包含密码的 SecureString
 pub fn read_password_from_env(var_name: &str) -> Result<SecureString> {
     let password = env::var(var_name)
-        .map_err(|_| CryptoError::MissingRequiredArgument(
-            format!("Environment variable {} not found", var_name)
-        ))?;
+        .map_err(|_| {
+            let msg = if i18n::is_zh() {
+                format!("未找到环境变量 {}", var_name)
+            } else {
+                format!("Environment variable {} not found", var_name)
+            };
+            CryptoError::MissingRequiredArgument(msg)
+        })?;
     
     if password.is_empty() {
         return Err(CryptoError::InvalidPassword);
@@ -378,7 +403,8 @@ pub fn display_progress(current: u64, total: u64) {
     print!("\r[");
     print!("{}", "=".repeat(filled));
     print!("{}", " ".repeat(empty));
-    print!("] {}% ({}/{} bytes)", percentage, current, total);
+    let unit = i18n::t("bytes", "字节");
+    print!("] {}% ({}/{} {})", percentage, current, total, unit);
     
     io::stdout().flush().ok();
     
@@ -395,7 +421,8 @@ pub fn display_progress(current: u64, total: u64) {
 /// * `current` - Current file number / 当前文件编号
 /// * `total` - Total number of files / 文件总数
 pub fn display_file_progress(file_path: &PathBuf, current: usize, total: usize) {
-    println!("[{}/{}] Processing: {}", current, total, file_path.display());
+    let label = i18n::t("Processing", "正在处理");
+    println!("[{}/{}] {}: {}", current, total, label, file_path.display());
 }
 
 /// Print verbose log message
@@ -406,7 +433,8 @@ pub fn display_file_progress(file_path: &PathBuf, current: usize, total: usize) 
 /// * `message` - The message to print / 要打印的消息
 pub fn log_verbose(verbose: bool, message: &str) {
     if verbose {
-        println!("[VERBOSE] {}", message);
+        let prefix = i18n::t("VERBOSE", "详细");
+        println!("[{}] {}", prefix, message);
     }
 }
 
@@ -416,7 +444,8 @@ pub fn log_verbose(verbose: bool, message: &str) {
 /// # Arguments / 参数
 /// * `message` - The error message to print / 要打印的错误消息
 pub fn print_error(message: &str) {
-    eprintln!("Error: {}", message);
+    let label = i18n::t("Error", "错误");
+    eprintln!("{}: {}", label, message);
 }
 
 /// Print a success message
@@ -436,4 +465,3 @@ pub fn print_success(message: &str) {
 pub fn print_info(message: &str) {
     println!("ℹ {}", message);
 }
-

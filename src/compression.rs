@@ -2,6 +2,7 @@
 // 压缩模块 - 压缩和解压缩操作
 
 use crate::error::{CryptoError, Result};
+use crate::i18n;
 use flate2::read::{GzDecoder, GzEncoder};
 use flate2::Compression as GzipCompression;
 use std::io::{Read, Write};
@@ -41,16 +42,22 @@ impl CompressionContext {
         match algorithm {
             CompressionAlgorithm::Gzip => {
                 if level < 1 || level > 9 {
-                    return Err(CryptoError::InvalidArguments(
-                        "Gzip compression level must be between 1 and 9".to_string(),
-                    ));
+                    let msg = if i18n::is_zh() {
+                        "Gzip 压缩级别必须在 1 到 9 之间".to_string()
+                    } else {
+                        "Gzip compression level must be between 1 and 9".to_string()
+                    };
+                    return Err(CryptoError::InvalidArguments(msg));
                 }
             }
             CompressionAlgorithm::Zstd => {
                 if level < 1 || level > 22 {
-                    return Err(CryptoError::InvalidArguments(
-                        "Zstd compression level must be between 1 and 22".to_string(),
-                    ));
+                    let msg = if i18n::is_zh() {
+                        "Zstd 压缩级别必须在 1 到 22 之间".to_string()
+                    } else {
+                        "Zstd compression level must be between 1 and 22".to_string()
+                    };
+                    return Err(CryptoError::InvalidArguments(msg));
                 }
             }
         }
@@ -83,7 +90,14 @@ fn compress_gzip(data: &[u8], level: u32) -> Result<Vec<u8>> {
     let mut compressed = Vec::new();
     encoder
         .read_to_end(&mut compressed)
-        .map_err(|e| CryptoError::SystemError(format!("Gzip compression failed: {}", e)))?;
+        .map_err(|e| {
+            let msg = if i18n::is_zh() {
+                format!("Gzip 压缩失败：{}", e)
+            } else {
+                format!("Gzip compression failed: {}", e)
+            };
+            CryptoError::SystemError(msg)
+        })?;
     Ok(compressed)
 }
 
@@ -94,7 +108,14 @@ fn decompress_gzip(data: &[u8]) -> Result<Vec<u8>> {
     let mut decompressed = Vec::new();
     decoder
         .read_to_end(&mut decompressed)
-        .map_err(|e| CryptoError::SystemError(format!("Gzip decompression failed: {}", e)))?;
+        .map_err(|e| {
+            let msg = if i18n::is_zh() {
+                format!("Gzip 解压缩失败：{}", e)
+            } else {
+                format!("Gzip decompression failed: {}", e)
+            };
+            CryptoError::SystemError(msg)
+        })?;
     Ok(decompressed)
 }
 
@@ -102,14 +123,28 @@ fn decompress_gzip(data: &[u8]) -> Result<Vec<u8>> {
 /// 使用 zstd 压缩数据
 fn compress_zstd(data: &[u8], level: u32) -> Result<Vec<u8>> {
     zstd::encode_all(data, level as i32)
-        .map_err(|e| CryptoError::SystemError(format!("Zstd compression failed: {}", e)))
+        .map_err(|e| {
+            let msg = if i18n::is_zh() {
+                format!("Zstd 压缩失败：{}", e)
+            } else {
+                format!("Zstd compression failed: {}", e)
+            };
+            CryptoError::SystemError(msg)
+        })
 }
 
 /// Decompress zstd data
 /// 解压缩 zstd 数据
 fn decompress_zstd(data: &[u8]) -> Result<Vec<u8>> {
     zstd::decode_all(data)
-        .map_err(|e| CryptoError::SystemError(format!("Zstd decompression failed: {}", e)))
+        .map_err(|e| {
+            let msg = if i18n::is_zh() {
+                format!("Zstd 解压缩失败：{}", e)
+            } else {
+                format!("Zstd decompression failed: {}", e)
+            };
+            CryptoError::SystemError(msg)
+        })
 }
 
 /// Compress data from a reader to a writer using streaming
@@ -147,10 +182,24 @@ fn compress_stream_gzip(
 ) -> Result<()> {
     let mut encoder = flate2::write::GzEncoder::new(writer, GzipCompression::new(level));
     std::io::copy(reader, &mut encoder)
-        .map_err(|e| CryptoError::SystemError(format!("Gzip stream compression failed: {}", e)))?;
+        .map_err(|e| {
+            let msg = if i18n::is_zh() {
+                format!("Gzip 流式压缩失败：{}", e)
+            } else {
+                format!("Gzip stream compression failed: {}", e)
+            };
+            CryptoError::SystemError(msg)
+        })?;
     encoder
         .finish()
-        .map_err(|e| CryptoError::SystemError(format!("Gzip stream finalization failed: {}", e)))?;
+        .map_err(|e| {
+            let msg = if i18n::is_zh() {
+                format!("Gzip 流式压缩结束失败：{}", e)
+            } else {
+                format!("Gzip stream finalization failed: {}", e)
+            };
+            CryptoError::SystemError(msg)
+        })?;
     Ok(())
 }
 
@@ -159,7 +208,14 @@ fn compress_stream_gzip(
 fn decompress_stream_gzip(reader: &mut impl Read, writer: &mut impl Write) -> Result<()> {
     let mut decoder = flate2::read::GzDecoder::new(reader);
     std::io::copy(&mut decoder, writer)
-        .map_err(|e| CryptoError::SystemError(format!("Gzip stream decompression failed: {}", e)))?;
+        .map_err(|e| {
+            let msg = if i18n::is_zh() {
+                format!("Gzip 流式解压缩失败：{}", e)
+            } else {
+                format!("Gzip stream decompression failed: {}", e)
+            };
+            CryptoError::SystemError(msg)
+        })?;
     Ok(())
 }
 
@@ -171,12 +227,33 @@ fn compress_stream_zstd(
     level: u32,
 ) -> Result<()> {
     let mut encoder = zstd::Encoder::new(writer, level as i32)
-        .map_err(|e| CryptoError::SystemError(format!("Zstd encoder creation failed: {}", e)))?;
+        .map_err(|e| {
+            let msg = if i18n::is_zh() {
+                format!("Zstd 编码器创建失败：{}", e)
+            } else {
+                format!("Zstd encoder creation failed: {}", e)
+            };
+            CryptoError::SystemError(msg)
+        })?;
     std::io::copy(reader, &mut encoder)
-        .map_err(|e| CryptoError::SystemError(format!("Zstd stream compression failed: {}", e)))?;
+        .map_err(|e| {
+            let msg = if i18n::is_zh() {
+                format!("Zstd 流式压缩失败：{}", e)
+            } else {
+                format!("Zstd stream compression failed: {}", e)
+            };
+            CryptoError::SystemError(msg)
+        })?;
     encoder
         .finish()
-        .map_err(|e| CryptoError::SystemError(format!("Zstd stream finalization failed: {}", e)))?;
+        .map_err(|e| {
+            let msg = if i18n::is_zh() {
+                format!("Zstd 流式压缩结束失败：{}", e)
+            } else {
+                format!("Zstd stream finalization failed: {}", e)
+            };
+            CryptoError::SystemError(msg)
+        })?;
     Ok(())
 }
 
@@ -184,8 +261,22 @@ fn compress_stream_zstd(
 /// 使用 zstd 解压缩流
 fn decompress_stream_zstd(reader: &mut impl Read, writer: &mut impl Write) -> Result<()> {
     let mut decoder = zstd::Decoder::new(reader)
-        .map_err(|e| CryptoError::SystemError(format!("Zstd decoder creation failed: {}", e)))?;
+        .map_err(|e| {
+            let msg = if i18n::is_zh() {
+                format!("Zstd 解码器创建失败：{}", e)
+            } else {
+                format!("Zstd decoder creation failed: {}", e)
+            };
+            CryptoError::SystemError(msg)
+        })?;
     std::io::copy(&mut decoder, writer)
-        .map_err(|e| CryptoError::SystemError(format!("Zstd stream decompression failed: {}", e)))?;
+        .map_err(|e| {
+            let msg = if i18n::is_zh() {
+                format!("Zstd 流式解压缩失败：{}", e)
+            } else {
+                format!("Zstd stream decompression failed: {}", e)
+            };
+            CryptoError::SystemError(msg)
+        })?;
     Ok(())
 }

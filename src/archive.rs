@@ -2,6 +2,7 @@
 // 归档模块 - 目录归档和提取
 
 use crate::error::{CryptoError, Result};
+use crate::i18n;
 use std::path::{Path, PathBuf};
 use std::io::{Read, Write};
 
@@ -57,15 +58,36 @@ impl ArchiveHeader {
     pub fn write_to<W: Write>(&self, writer: &mut W) -> Result<()> {
         // Write magic bytes
         writer.write_all(&self.magic)
-            .map_err(|e| CryptoError::SystemError(format!("Failed to write archive magic: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("写入归档魔数失败：{}", e)
+                } else {
+                    format!("Failed to write archive magic: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         
         // Write version
         writer.write_all(&self.version.to_le_bytes())
-            .map_err(|e| CryptoError::SystemError(format!("Failed to write archive version: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("写入归档版本失败：{}", e)
+                } else {
+                    format!("Failed to write archive version: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         
         // Write entry count
         writer.write_all(&self.entry_count.to_le_bytes())
-            .map_err(|e| CryptoError::SystemError(format!("Failed to write entry count: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("写入条目数量失败：{}", e)
+                } else {
+                    format!("Failed to write entry count: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         
         Ok(())
     }
@@ -155,34 +177,81 @@ impl ArchiveEntryHeader {
     pub fn write_to<W: Write>(&self, writer: &mut W) -> Result<()> {
         // Convert path to UTF-8 string
         let path_str = self.path.to_str()
-            .ok_or_else(|| CryptoError::InvalidArguments("Path contains invalid UTF-8".to_string()))?;
+            .ok_or_else(|| {
+                let msg = if i18n::is_zh() {
+                    "路径包含无效的 UTF-8".to_string()
+                } else {
+                    "Path contains invalid UTF-8".to_string()
+                };
+                CryptoError::InvalidArguments(msg)
+            })?;
         let path_bytes = path_str.as_bytes();
         
         // Check path length
         if path_bytes.len() > u16::MAX as usize {
-            return Err(CryptoError::InvalidArguments("Path too long (max 65535 bytes)".to_string()));
+            let msg = if i18n::is_zh() {
+                "路径过长（最大 65535 字节）".to_string()
+            } else {
+                "Path too long (max 65535 bytes)".to_string()
+            };
+            return Err(CryptoError::InvalidArguments(msg));
         }
         
         // Write path length
         let path_len = path_bytes.len() as u16;
         writer.write_all(&path_len.to_le_bytes())
-            .map_err(|e| CryptoError::SystemError(format!("Failed to write path length: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("写入路径长度失败：{}", e)
+                } else {
+                    format!("Failed to write path length: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         
         // Write path
         writer.write_all(path_bytes)
-            .map_err(|e| CryptoError::SystemError(format!("Failed to write path: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("写入路径失败：{}", e)
+                } else {
+                    format!("Failed to write path: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         
         // Write file size
         writer.write_all(&self.file_size.to_le_bytes())
-            .map_err(|e| CryptoError::SystemError(format!("Failed to write file size: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("写入文件大小失败：{}", e)
+                } else {
+                    format!("Failed to write file size: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         
         // Write permissions
         writer.write_all(&self.permissions.to_le_bytes())
-            .map_err(|e| CryptoError::SystemError(format!("Failed to write permissions: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("写入权限失败：{}", e)
+                } else {
+                    format!("Failed to write permissions: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         
         // Write modified time
         writer.write_all(&self.modified_time.to_le_bytes())
-            .map_err(|e| CryptoError::SystemError(format!("Failed to write modified time: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("写入修改时间失败：{}", e)
+                } else {
+                    format!("Failed to write modified time: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         
         Ok(())
     }
@@ -271,7 +340,14 @@ fn collect_files(dir_path: &Path, base_path: &Path) -> Result<Vec<(PathBuf, Path
             // Compute relative path from base
             // 从基础路径计算相对路径
             let relative_path = path.strip_prefix(base_path)
-                .map_err(|_| CryptoError::InvalidArguments("Path is not within base directory".to_string()))?
+                .map_err(|_| {
+                    let msg = if i18n::is_zh() {
+                        "路径不在基础目录内".to_string()
+                    } else {
+                        "Path is not within base directory".to_string()
+                    };
+                    CryptoError::InvalidArguments(msg)
+                })?
                 .to_path_buf();
             
             files.push((relative_path, path, metadata));
@@ -307,7 +383,11 @@ pub fn create_archive(dir_path: &Path) -> Result<Vec<u8>> {
     // Validate that the path is a directory
     if !dir_path.is_dir() {
         return Err(CryptoError::InvalidArguments(
-            format!("{} is not a directory", dir_path.display())
+            if i18n::is_zh() {
+                format!("{} 不是目录", dir_path.display())
+            } else {
+                format!("{} is not a directory", dir_path.display())
+            }
         ));
     }
     
@@ -340,9 +420,23 @@ pub fn create_archive(dir_path: &Path) -> Result<Vec<u8>> {
         // Get modified time
         // 获取修改时间
         let modified_time = metadata.modified()
-            .map_err(|e| CryptoError::SystemError(format!("Failed to get modified time: {}", e)))?
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("获取修改时间失败：{}", e)
+                } else {
+                    format!("Failed to get modified time: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?
             .duration_since(std::time::UNIX_EPOCH)
-            .map_err(|e| CryptoError::SystemError(format!("Invalid modified time: {}", e)))?
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("修改时间无效：{}", e)
+                } else {
+                    format!("Invalid modified time: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?
             .as_secs();
         
         // Write entry header
@@ -444,7 +538,14 @@ pub fn extract_archive(archive_data: &[u8], output_path: &Path) -> Result<()> {
         let mtime = std::time::UNIX_EPOCH + std::time::Duration::from_secs(entry_header.modified_time);
         let file_times = filetime::FileTime::from_system_time(mtime);
         filetime::set_file_mtime(&file_path, file_times)
-            .map_err(|e| CryptoError::SystemError(format!("Failed to set modified time: {}", e)))?;
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("设置修改时间失败：{}", e)
+                } else {
+                    format!("Failed to set modified time: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
     }
     
     Ok(())
