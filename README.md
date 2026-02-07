@@ -104,11 +104,21 @@ crypto-cli-tool --help
 
 ## 快速开始
 
+### 命令风格（推荐记忆法）
+
+```bash
+# 加密：crypto [命令] [文件名] [命令] [加密后的文件名]
+crypto encrypt secret.txt encrypt secret.txt.enc
+
+# 解密：crypto [命令] [加密后的文件名] [命令] [解密后的文件名]
+crypto decrypt secret.txt.enc decrypt secret.txt
+```
+
 ### 1. 加密文件
 
 ```bash
 # 使用密码加密文件（默认使用 AES-256-GCM）
-crypto-cli-tool encrypt -i secret.txt -o secret.txt.enc
+crypto encrypt -i secret.txt -o secret.txt.enc
 
 # 系统会提示输入密码
 Enter password: ****
@@ -120,7 +130,7 @@ Confirm password: ****
 
 ```bash
 # 解密文件
-crypto-cli-tool decrypt -i secret.txt.enc -o secret.txt
+crypto decrypt -i secret.txt.enc -o secret.txt
 
 # 输入加密时使用的密码
 Enter password: ****
@@ -131,7 +141,7 @@ Enter password: ****
 
 ```bash
 # 递归加密整个目录
-crypto-cli-tool encrypt -i my_folder -o my_folder.enc --recursive
+crypto encrypt -i my_folder -o my_folder.enc --recursive
 
 # 目录会被打包成归档文件后加密
 ✓ Directory encrypted successfully: my_folder.enc
@@ -141,7 +151,7 @@ crypto-cli-tool encrypt -i my_folder -o my_folder.enc --recursive
 
 ```bash
 # 列出所有支持的加密算法
-crypto-cli-tool list-algorithms
+crypto list-algorithms
 ```
 
 
@@ -150,8 +160,15 @@ crypto-cli-tool list-algorithms
 ### 命令概览
 
 ```bash
-crypto-cli-tool <COMMAND> [OPTIONS]
+crypto <COMMAND> [OPTIONS]
 ```
+
+常用子命令别名（更短更好记）：
+- `encrypt` → `e` / `enc`
+- `decrypt` → `d` / `dec`
+- `keygen` → `k` / `kg`
+- `list-algorithms` → `ls` / `list` / `algos`
+- `info` → `i`
 
 可用命令：
 - `encrypt` - 加密文件或目录
@@ -165,7 +182,7 @@ crypto-cli-tool <COMMAND> [OPTIONS]
 加密文件或目录。
 
 ```bash
-crypto-cli-tool encrypt [OPTIONS] -i <FILE>
+crypto encrypt [OPTIONS] -i <FILE>
 ```
 
 **选项：**
@@ -174,7 +191,7 @@ crypto-cli-tool encrypt [OPTIONS] -i <FILE>
 - `-o, --output <FILE>` - 输出文件路径（默认：输入文件名 + .enc）
 - `-a, --algorithm <ALGORITHM>` - 加密算法（默认：aes-256-gcm）
 - `-k, --key-source <SOURCE>` - 密钥来源：password、env、keyfile（默认：password）
-- `--password-env <VAR>` - 密码环境变量名（当 key-source=env 时）
+- `-p, --password-env <VAR>` - 密码环境变量名（当 key-source=env 时）
 - `--keyfile <FILE>` - 密钥文件路径（当 key-source=keyfile 时）
 - `-c, --compress <ALGORITHM>` - 压缩算法：gzip 或 zstd
 - `--compression-level <LEVEL>` - 压缩级别（gzip: 1-9, zstd: 1-22）
@@ -185,23 +202,23 @@ crypto-cli-tool encrypt [OPTIONS] -i <FILE>
 
 ```bash
 # 使用默认算法加密
-crypto-cli-tool encrypt -i document.pdf
+crypto encrypt -i document.pdf
 
 # 使用 ChaCha20-Poly1305 加密
-crypto-cli-tool encrypt -i data.txt -a chacha20-poly1305
+crypto encrypt -i data.txt -a chacha20-poly1305
 
 # 加密前压缩
-crypto-cli-tool encrypt -i large_file.dat -c zstd --compression-level 10
+crypto encrypt -i large_file.dat -c zstd --compression-level 10
 
 # 从环境变量读取密码
 export MY_PASSWORD="secret123"
-crypto-cli-tool encrypt -i file.txt -k env --password-env MY_PASSWORD
+crypto encrypt -i file.txt -k env --password-env MY_PASSWORD
 
 # 使用密钥文件加密
-crypto-cli-tool encrypt -i file.txt -k keyfile --keyfile my.key
+crypto encrypt -i file.txt -k keyfile --keyfile my.key
 
 # 递归加密目录
-crypto-cli-tool encrypt -i my_documents/ -o backup.enc -r
+crypto encrypt -i my_documents/ -o backup.enc -r
 ```
 
 
@@ -210,7 +227,7 @@ crypto-cli-tool encrypt -i my_documents/ -o backup.enc -r
 解密文件或目录。
 
 ```bash
-crypto-cli-tool decrypt [OPTIONS] -i <FILE>
+crypto decrypt [OPTIONS] -i <FILE>
 ```
 
 **选项：**
@@ -218,7 +235,7 @@ crypto-cli-tool decrypt [OPTIONS] -i <FILE>
 - `-i, --input <FILE>` - 要解密的加密文件（必需）
 - `-o, --output <FILE>` - 输出文件或目录路径（默认：移除 .enc 扩展名）
 - `-k, --key-source <SOURCE>` - 密钥来源：password、env、keyfile（默认：password）
-- `--password-env <VAR>` - 密码环境变量名（当 key-source=env 时）
+- `-p, --password-env <VAR>` - 密码环境变量名（当 key-source=env 时）
 - `--keyfile <FILE>` - 密钥文件路径（当 key-source=keyfile 时）
 - `-v, --verbose` - 详细输出
 
@@ -226,16 +243,16 @@ crypto-cli-tool decrypt [OPTIONS] -i <FILE>
 
 ```bash
 # 解密文件
-crypto-cli-tool decrypt -i document.pdf.enc
+crypto decrypt -i document.pdf.enc
 
 # 指定输出路径
-crypto-cli-tool decrypt -i encrypted.dat -o decrypted.dat
+crypto decrypt -i encrypted.dat -o decrypted.dat
 
 # 从环境变量读取密码
-crypto-cli-tool decrypt -i file.enc -k env --password-env MY_PASSWORD
+crypto decrypt -i file.enc -k env --password-env MY_PASSWORD
 
 # 解密目录归档
-crypto-cli-tool decrypt -i backup.enc -o restored_folder/
+crypto decrypt -i backup.enc -o restored_folder/
 ```
 
 ### keygen 命令
@@ -243,7 +260,7 @@ crypto-cli-tool decrypt -i backup.enc -o restored_folder/
 生成加密密钥或密钥对。
 
 ```bash
-crypto-cli-tool keygen [OPTIONS] -a <ALGORITHM> -o <FILE>
+crypto keygen [OPTIONS] -a <ALGORITHM> -o <FILE>
 ```
 
 **选项：**
@@ -257,14 +274,14 @@ crypto-cli-tool keygen [OPTIONS] -a <ALGORITHM> -o <FILE>
 
 ```bash
 # 生成对称密钥（AES-256）
-crypto-cli-tool keygen -a aes-256 -o my.key -f raw
+crypto keygen -a aes-256 -o my.key -f raw
 
 # 生成 RSA 密钥对
-crypto-cli-tool keygen -a rsa-4096 -o private.pem
+crypto keygen -a rsa-4096 -o private.pem
 # 会生成 private.pem 和 private.pub
 
 # 生成 ECIES 密钥对
-crypto-cli-tool keygen -a ecies-p256 -o ec_key.pem
+crypto keygen -a ecies-p256 -o ec_key.pem
 ```
 
 
@@ -273,7 +290,7 @@ crypto-cli-tool keygen -a ecies-p256 -o ec_key.pem
 列出所有支持的加密算法及其属性。
 
 ```bash
-crypto-cli-tool list-algorithms
+crypto list-algorithms
 ```
 
 ### info 命令
@@ -281,13 +298,13 @@ crypto-cli-tool list-algorithms
 显示加密文件的信息（不解密）。
 
 ```bash
-crypto-cli-tool info -i <FILE>
+crypto info -i <FILE>
 ```
 
 **示例：**
 
 ```bash
-crypto-cli-tool info -i encrypted_file.enc
+crypto info -i encrypted_file.enc
 
 # 输出示例：
 # Algorithm: AES-256-GCM
@@ -335,11 +352,11 @@ crypto-cli-tool info -i encrypted_file.enc
 
 ```bash
 # 使用强密码加密文档
-crypto-cli-tool encrypt -i confidential.pdf -o confidential.pdf.enc
+crypto encrypt -i confidential.pdf -o confidential.pdf.enc
 
 # 使用 RSA 公钥加密（无需密码）
-crypto-cli-tool keygen -a rsa-4096 -o my_key.pem
-crypto-cli-tool encrypt -i confidential.pdf -a rsa-oaep-4096 \
+crypto keygen -a rsa-4096 -o my_key.pem
+crypto encrypt -i confidential.pdf -a rsa-oaep-4096 \
   -k keyfile --keyfile my_key.pub
 ```
 
@@ -347,11 +364,11 @@ crypto-cli-tool encrypt -i confidential.pdf -a rsa-oaep-4096 \
 
 ```bash
 # 加密整个项目目录，使用压缩节省空间
-crypto-cli-tool encrypt -i my_project/ -o project_backup.enc \
+crypto encrypt -i my_project/ -o project_backup.enc \
   --recursive -c zstd --compression-level 15
 
 # 恢复项目
-crypto-cli-tool decrypt -i project_backup.enc -o restored_project/
+crypto decrypt -i project_backup.enc -o restored_project/
 ```
 
 ### 场景 3：自动化脚本中使用
@@ -364,7 +381,7 @@ export BACKUP_PASSWORD="your-secure-password"
 
 # 加密多个文件
 for file in *.txt; do
-    crypto-cli-tool encrypt -i "$file" -o "${file}.enc" \
+    crypto encrypt -i "$file" -o "${file}.enc" \
       -k env --password-env BACKUP_PASSWORD -v
 done
 
@@ -376,7 +393,7 @@ unset BACKUP_PASSWORD
 
 ```bash
 # 加密大文件（使用流式处理，内存占用恒定）
-crypto-cli-tool encrypt -i large_video.mp4 -o large_video.mp4.enc \
+crypto encrypt -i large_video.mp4 -o large_video.mp4.enc \
   -a chacha20-poly1305 -v
 
 # 工具会显示进度条
@@ -387,7 +404,7 @@ crypto-cli-tool encrypt -i large_video.mp4 -o large_video.mp4.enc \
 
 ```bash
 # 不解密，仅查看文件信息
-crypto-cli-tool info -i encrypted_file.enc
+crypto info -i encrypted_file.enc
 
 # 输出：
 # Encrypted File Information:

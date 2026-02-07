@@ -5,6 +5,7 @@ use crate::error::{CryptoError, Result};
 use crate::i18n;
 use std::path::{Path, PathBuf};
 use std::io::{Read, Write};
+use std::path::Component;
 
 /// Magic bytes for archive identification: "CRYTAR"
 /// 归档识别的魔数字节："CRYTAR"
@@ -13,6 +14,19 @@ pub const ARCHIVE_MAGIC: [u8; 6] = *b"CRYTAR";
 /// Current archive format version
 /// 当前归档格式版本
 pub const ARCHIVE_VERSION: u16 = 1;
+
+fn is_safe_relative_path(path: &Path) -> bool {
+    if path.is_absolute() {
+        return false;
+    }
+    for comp in path.components() {
+        match comp {
+            Component::Prefix(_) | Component::RootDir | Component::ParentDir => return false,
+            Component::CurDir | Component::Normal(_) => {}
+        }
+    }
+    true
+}
 
 /// Archive header structure
 /// 归档头部结构
@@ -494,6 +508,10 @@ pub fn extract_archive(archive_data: &[u8], output_path: &Path) -> Result<()> {
     for _ in 0..header.entry_count {
         // Read entry header
         let entry_header = ArchiveEntryHeader::read_from(&mut reader)?;
+
+        if !is_safe_relative_path(&entry_header.path) {
+            return Err(CryptoError::InvalidPath(entry_header.path.clone()));
+        }
         
         // Construct full output path
         let file_path = output_path.join(&entry_header.path);

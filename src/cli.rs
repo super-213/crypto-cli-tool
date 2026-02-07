@@ -26,22 +26,27 @@ pub struct Cli {
 pub enum Command {
     /// Encrypt a file or directory
     /// 加密文件或目录
+    #[command(aliases = ["e", "enc"])]
     Encrypt(EncryptArgs),
     
     /// Decrypt a file or directory
     /// 解密文件或目录
+    #[command(aliases = ["d", "dec"])]
     Decrypt(DecryptArgs),
     
     /// Generate cryptographic keys
     /// 生成加密密钥
+    #[command(aliases = ["k", "kg"])]
     Keygen(KeygenArgs),
     
     /// List all supported encryption algorithms
     /// 列出所有支持的加密算法
+    #[command(aliases = ["ls", "list", "algos"])]
     ListAlgorithms,
     
     /// Display information about an encrypted file
     /// 显示加密文件的信息
+    #[command(aliases = ["i", "info"])]
     Info(InfoArgs),
 }
 
@@ -71,7 +76,7 @@ pub struct EncryptArgs {
     
     /// Environment variable name for password (when key-source=env)
     /// 密码的环境变量名（当 key-source=env 时）
-    #[arg(long, value_name = "VAR")]
+    #[arg(long, short = 'p', value_name = "VAR", alias = "pass-env")]
     pub password_env: Option<String>,
     
     /// Key file path (when key-source=keyfile)
@@ -121,7 +126,7 @@ pub struct DecryptArgs {
     
     /// Environment variable name for password (when key-source=env)
     /// 密码的环境变量名（当 key-source=env 时）
-    #[arg(long, value_name = "VAR")]
+    #[arg(long, short = 'p', value_name = "VAR", alias = "pass-env")]
     pub password_env: Option<String>,
     
     /// Key file path (when key-source=keyfile)

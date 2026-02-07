@@ -11,6 +11,10 @@ path = "src/lib.rs"
 name = "crypto-cli-tool"
 path = "src/main.rs"
 
+[[bin]]
+name = "crypto"
+path = "src/main.rs"
+
 [dependencies]
 # Cryptography libraries
 ring = "0.17"

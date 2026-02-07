@@ -904,7 +904,7 @@ pub struct StreamEncryptionResult {
 ///
 /// # Format / 格式
 /// The output format is: / 输出格式为：
-/// [chunk_0_ciphertext][chunk_0_tag][chunk_1_ciphertext][chunk_1_tag]...
+/// [chunk_0_len(u32)][chunk_0_ciphertext+tag][chunk_1_len(u32)][chunk_1_ciphertext+tag]...
 pub fn encrypt_stream_aes_256_gcm<R: Read, W: Write>(
     mut reader: R,
     mut writer: W,
@@ -973,7 +973,25 @@ pub fn encrypt_stream_aes_256_gcm<R: Read, W: Write>(
                 CryptoError::EncryptionFailed(msg)
             })?;
         
-        // Write encrypted chunk to output
+        // Write encrypted chunk length and data to output
+        let chunk_len = ciphertext_with_tag.len();
+        if chunk_len > u32::MAX as usize {
+            let msg = if i18n::is_zh() {
+                "加密块过大".to_string()
+            } else {
+                "Encrypted chunk too large".to_string()
+            };
+            return Err(CryptoError::EncryptionFailed(msg));
+        }
+        writer.write_all(&(chunk_len as u32).to_le_bytes())
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("写入加密数据失败：{}", e)
+                } else {
+                    format!("Failed to write encrypted data: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         writer.write_all(&ciphertext_with_tag)
             .map_err(|e| {
                 let msg = if i18n::is_zh() {
@@ -1009,6 +1027,10 @@ pub fn encrypt_stream_aes_256_gcm<R: Read, W: Write>(
 ///
 /// # Returns / 返回值
 /// StreamEncryptionResult containing the nonce and total number of chunks / 包含 nonce 和总块数的 StreamEncryptionResult
+///
+/// # Format / 格式
+/// The output format is: / 输出格式为：
+/// [chunk_0_len(u32)][chunk_0_ciphertext+tag][chunk_1_len(u32)][chunk_1_ciphertext+tag]...
 pub fn encrypt_stream_chacha20_poly1305<R: Read, W: Write>(
     mut reader: R,
     mut writer: W,
@@ -1076,7 +1098,25 @@ pub fn encrypt_stream_chacha20_poly1305<R: Read, W: Write>(
                 CryptoError::EncryptionFailed(msg)
             })?;
         
-        // Write encrypted chunk to output
+        // Write encrypted chunk length and data to output
+        let chunk_len = ciphertext_with_tag.len();
+        if chunk_len > u32::MAX as usize {
+            let msg = if i18n::is_zh() {
+                "加密块过大".to_string()
+            } else {
+                "Encrypted chunk too large".to_string()
+            };
+            return Err(CryptoError::EncryptionFailed(msg));
+        }
+        writer.write_all(&(chunk_len as u32).to_le_bytes())
+            .map_err(|e| {
+                let msg = if i18n::is_zh() {
+                    format!("写入加密数据失败：{}", e)
+                } else {
+                    format!("Failed to write encrypted data: {}", e)
+                };
+                CryptoError::SystemError(msg)
+            })?;
         writer.write_all(&ciphertext_with_tag)
             .map_err(|e| {
                 let msg = if i18n::is_zh() {
@@ -1135,26 +1175,10 @@ pub fn decrypt_stream_aes_256_gcm<R: Read, W: Write>(
     let cipher = Aes256Gcm::new_from_slice(key.as_ref())
         .map_err(|_| CryptoError::InvalidKey)?;
     
-    // Each encrypted chunk has: ciphertext + 16-byte tag
-    // We need to read chunks of variable size (up to CHUNK_SIZE + 16)
-    let max_encrypted_chunk_size = CHUNK_SIZE + 16;
-    let mut buffer = vec![0u8; max_encrypted_chunk_size];
-    
     for chunk_counter in 0..total_chunks {
-        // Determine expected chunk size
-        // Last chunk might be smaller, but we don't know the exact size
-        // So we try to read up to max_encrypted_chunk_size
-        let bytes_read = reader.read(&mut buffer)
-            .map_err(|e| {
-                let msg = if i18n::is_zh() {
-                    format!("读取加密数据失败：{}", e)
-                } else {
-                    format!("Failed to read encrypted data: {}", e)
-                };
-                CryptoError::SystemError(msg)
-            })?;
-        
-        if bytes_read == 0 {
+        // Read chunk length
+        let mut len_bytes = [0u8; 4];
+        if let Err(_) = reader.read_exact(&mut len_bytes) {
             let msg = if i18n::is_zh() {
                 "数据流意外结束".to_string()
             } else {
@@ -1162,6 +1186,26 @@ pub fn decrypt_stream_aes_256_gcm<R: Read, W: Write>(
             };
             return Err(CryptoError::DecryptionFailed(msg));
         }
+        let chunk_len = u32::from_le_bytes(len_bytes) as usize;
+        if chunk_len < 16 || chunk_len > CHUNK_SIZE + 16 {
+            let msg = if i18n::is_zh() {
+                "加密块长度无效".to_string()
+            } else {
+                "Invalid encrypted chunk length".to_string()
+            };
+            return Err(CryptoError::DecryptionFailed(msg));
+        }
+        
+        let mut buffer = vec![0u8; chunk_len];
+        reader.read_exact(&mut buffer)
+            .map_err(|_| {
+                let msg = if i18n::is_zh() {
+                    "数据流意外结束".to_string()
+                } else {
+                    "Unexpected end of stream".to_string()
+                };
+                CryptoError::DecryptionFailed(msg)
+            })?;
         
         // Prepare AAD with chunk counter
         let aad = chunk_counter.to_le_bytes();
@@ -1178,7 +1222,7 @@ pub fn decrypt_stream_aes_256_gcm<R: Read, W: Write>(
         
         // Prepare payload with chunk counter as AAD
         let payload = Payload {
-            msg: &buffer[..bytes_read],
+            msg: &buffer,
             aad: &aad,
         };
         
@@ -1238,23 +1282,10 @@ pub fn decrypt_stream_chacha20_poly1305<R: Read, W: Write>(
     let cipher_key = ChaChaKey::from_slice(key.as_ref());
     let cipher = ChaCha20Poly1305::new(cipher_key);
     
-    // Each encrypted chunk has: ciphertext + 16-byte tag
-    let max_encrypted_chunk_size = CHUNK_SIZE + 16;
-    let mut buffer = vec![0u8; max_encrypted_chunk_size];
-    
     for chunk_counter in 0..total_chunks {
-        // Read encrypted chunk
-        let bytes_read = reader.read(&mut buffer)
-            .map_err(|e| {
-                let msg = if i18n::is_zh() {
-                    format!("读取加密数据失败：{}", e)
-                } else {
-                    format!("Failed to read encrypted data: {}", e)
-                };
-                CryptoError::SystemError(msg)
-            })?;
-        
-        if bytes_read == 0 {
+        // Read chunk length
+        let mut len_bytes = [0u8; 4];
+        if let Err(_) = reader.read_exact(&mut len_bytes) {
             let msg = if i18n::is_zh() {
                 "数据流意外结束".to_string()
             } else {
@@ -1262,6 +1293,26 @@ pub fn decrypt_stream_chacha20_poly1305<R: Read, W: Write>(
             };
             return Err(CryptoError::DecryptionFailed(msg));
         }
+        let chunk_len = u32::from_le_bytes(len_bytes) as usize;
+        if chunk_len < 16 || chunk_len > CHUNK_SIZE + 16 {
+            let msg = if i18n::is_zh() {
+                "加密块长度无效".to_string()
+            } else {
+                "Invalid encrypted chunk length".to_string()
+            };
+            return Err(CryptoError::DecryptionFailed(msg));
+        }
+        
+        let mut buffer = vec![0u8; chunk_len];
+        reader.read_exact(&mut buffer)
+            .map_err(|_| {
+                let msg = if i18n::is_zh() {
+                    "数据流意外结束".to_string()
+                } else {
+                    "Unexpected end of stream".to_string()
+                };
+                CryptoError::DecryptionFailed(msg)
+            })?;
         
         // Prepare AAD with chunk counter
         let aad = chunk_counter.to_le_bytes();
@@ -1278,7 +1329,7 @@ pub fn decrypt_stream_chacha20_poly1305<R: Read, W: Write>(
         
         // Prepare payload with chunk counter as AAD
         let payload = Payload {
-            msg: &buffer[..bytes_read],
+            msg: &buffer,
             aad: &aad,
         };
         
