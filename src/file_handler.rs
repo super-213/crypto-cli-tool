@@ -1,12 +1,13 @@
 // File Handler module - file I/O, streaming, and directory operations
 // 文件处理器模块 - 文件 I/O、流式处理和目录操作
 
+use crate::compression::CompressionAlgorithm;
 use crate::error::{CryptoError, Result};
 use crate::i18n;
 use crate::key_manager::KdfAlgorithm;
-use crate::compression::CompressionAlgorithm;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
-use sha2::{Sha256, Digest};
 
 /// Magic bytes for encrypted file identification: "CRYPTOOL"
 /// 加密文件识别的魔数字节："CRYPTOOL"
@@ -15,6 +16,33 @@ pub const MAGIC_BYTES: [u8; 8] = *b"CRYPTOOL";
 /// Current file format version
 /// 当前文件格式版本
 pub const CURRENT_VERSION: u16 = 1;
+
+/// Files at or above this size use the streaming format when the algorithm supports it.
+/// 大于或等于该大小的文件在算法支持时使用流式格式。
+pub const STREAMING_THRESHOLD: u64 = 64 * 1024 * 1024;
+
+/// Current streaming payload format version.
+/// 当前流式载荷格式版本。
+pub const STREAMING_FORMAT_VERSION: u32 = 1;
+
+/// Maximum accepted streaming chunk size.
+/// 允许接受的最大流式分块大小。
+pub const MAX_STREAMING_CHUNK_SIZE: u64 = 16 * 1024 * 1024;
+
+pub type FileProgressCallback<'a> = Option<&'a mut dyn FnMut(u64, u64)>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StreamingMetadata {
+    pub streaming: bool,
+    pub stream_version: u32,
+    pub chunk_size: u64,
+    pub total_chunks: u64,
+    pub payload_size: u64,
+    #[serde(default)]
+    pub stream_input_size: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compressed_size: Option<u64>,
+}
 
 /// Encryption algorithm identifiers
 /// 加密算法标识符
@@ -43,11 +71,15 @@ impl Algorithm {
             _ => Err(CryptoError::InvalidFileFormat),
         }
     }
-    
+
     /// Convert to byte representation
     /// 转换为字节表示
     pub fn to_u8(self) -> u8 {
         self as u8
+    }
+
+    pub fn supports_streaming(self) -> bool {
+        matches!(self, Algorithm::Aes256Gcm | Algorithm::ChaCha20Poly1305)
     }
 }
 
@@ -62,43 +94,43 @@ pub struct EncryptedFileHeader {
     /// Magic bytes for file identification: "CRYPTOOL"
     /// 文件识别的魔数字节："CRYPTOOL"
     pub magic: [u8; 8],
-    
+
     /// File format version
     /// 文件格式版本
     pub version: u16,
-    
+
     /// Encryption algorithm used
     /// 使用的加密算法
     pub algorithm: Algorithm,
-    
+
     /// Key derivation function (None if raw key was used)
     /// 密钥派生函数（如果使用原始密钥则为 None）
     pub kdf: Option<KdfAlgorithm>,
-    
+
     /// KDF iteration count (None if KDF not used)
     /// KDF 迭代次数（如果未使用 KDF 则为 None）
     pub kdf_iterations: Option<u32>,
-    
+
     /// Salt for key derivation (None if KDF not used)
     /// 密钥派生的盐（如果未使用 KDF 则为 None）
     pub salt: Option<Vec<u8>>,
-    
+
     /// Initialization vector or nonce
     /// 初始化向量或 nonce
     pub iv: Vec<u8>,
-    
+
     /// Whether the data was compressed before encryption
     /// 数据在加密前是否被压缩
     pub compressed: bool,
-    
+
     /// Compression algorithm used (None if not compressed)
     /// 使用的压缩算法（如果未压缩则为 None）
     pub compression_algo: Option<CompressionAlgorithm>,
-    
+
     /// Original unencrypted file size
     /// 原始未加密文件大小
     pub original_size: u64,
-    
+
     /// Additional metadata in JSON format
     /// JSON 格式的附加元数据
     pub metadata: Vec<u8>,
@@ -122,7 +154,7 @@ impl EncryptedFileHeader {
             metadata: Vec::new(),
         }
     }
-    
+
     /// Set KDF parameters
     /// 设置 KDF 参数
     pub fn with_kdf(mut self, kdf: KdfAlgorithm, iterations: u32, salt: Vec<u8>) -> Self {
@@ -131,7 +163,7 @@ impl EncryptedFileHeader {
         self.salt = Some(salt);
         self
     }
-    
+
     /// Set compression parameters
     /// 设置压缩参数
     pub fn with_compression(mut self, algo: CompressionAlgorithm) -> Self {
@@ -139,14 +171,14 @@ impl EncryptedFileHeader {
         self.compression_algo = Some(algo);
         self
     }
-    
+
     /// Set metadata
     /// 设置元数据
     pub fn with_metadata(mut self, metadata: Vec<u8>) -> Self {
         self.metadata = metadata;
         self
     }
-    
+
     /// Serialize the header to binary format and write to a writer
     /// 将头部序列化为二进制格式并写入写入器
     ///
@@ -175,23 +207,23 @@ impl EncryptedFileHeader {
     pub fn write_to<W: Write>(&self, writer: &mut W) -> Result<()> {
         // Build header data (everything except the checksum)
         let mut header_data = Vec::new();
-        
+
         // Magic bytes (8 bytes)
         header_data.extend_from_slice(&self.magic);
-        
+
         // Version (2 bytes, little-endian)
         header_data.extend_from_slice(&self.version.to_le_bytes());
-        
+
         // Algorithm ID (1 byte)
         header_data.push(self.algorithm.to_u8());
-        
+
         // Flags (1 byte)
         let mut flags: u8 = 0;
         if self.compressed {
             flags |= 0x01; // Set bit 0 for compressed
         }
         header_data.push(flags);
-        
+
         // Compression Algorithm (1 byte)
         let comp_byte = match self.compression_algo {
             None => 0x00,
@@ -199,7 +231,7 @@ impl EncryptedFileHeader {
             Some(CompressionAlgorithm::Zstd) => 0x02,
         };
         header_data.push(comp_byte);
-        
+
         // KDF Algorithm (1 byte)
         let kdf_byte = match self.kdf {
             None => 0x00,
@@ -207,11 +239,11 @@ impl EncryptedFileHeader {
             Some(KdfAlgorithm::Argon2id) => 0x02,
         };
         header_data.push(kdf_byte);
-        
+
         // KDF Iterations (4 bytes, little-endian)
         let iterations = self.kdf_iterations.unwrap_or(0);
         header_data.extend_from_slice(&iterations.to_le_bytes());
-        
+
         // Salt Length and Salt
         let salt = self.salt.as_ref().map(|s| s.as_slice()).unwrap_or(&[]);
         if salt.len() > 255 {
@@ -224,7 +256,7 @@ impl EncryptedFileHeader {
         }
         header_data.push(salt.len() as u8);
         header_data.extend_from_slice(salt);
-        
+
         // IV Length and IV
         if self.iv.len() > 255 {
             let msg = if i18n::is_zh() {
@@ -236,10 +268,10 @@ impl EncryptedFileHeader {
         }
         header_data.push(self.iv.len() as u8);
         header_data.extend_from_slice(&self.iv);
-        
+
         // Original Size (8 bytes, little-endian)
         header_data.extend_from_slice(&self.original_size.to_le_bytes());
-        
+
         // Metadata Length and Metadata
         if self.metadata.len() > 65535 {
             let msg = if i18n::is_zh() {
@@ -252,37 +284,35 @@ impl EncryptedFileHeader {
         let metadata_len = self.metadata.len() as u16;
         header_data.extend_from_slice(&metadata_len.to_le_bytes());
         header_data.extend_from_slice(&self.metadata);
-        
+
         // Compute SHA-256 checksum of header data
         let mut hasher = Sha256::new();
         hasher.update(&header_data);
         let checksum = hasher.finalize();
-        
+
         // Write header data to writer
-        writer.write_all(&header_data)
-            .map_err(|e| {
-                let msg = if i18n::is_zh() {
-                    format!("写入文件头失败：{}", e)
-                } else {
-                    format!("Failed to write header: {}", e)
-                };
-                CryptoError::SystemError(msg)
-            })?;
-        
+        writer.write_all(&header_data).map_err(|e| {
+            let msg = if i18n::is_zh() {
+                format!("写入文件头失败：{}", e)
+            } else {
+                format!("Failed to write header: {}", e)
+            };
+            CryptoError::SystemError(msg)
+        })?;
+
         // Write checksum (32 bytes)
-        writer.write_all(&checksum)
-            .map_err(|e| {
-                let msg = if i18n::is_zh() {
-                    format!("写入文件头校验和失败：{}", e)
-                } else {
-                    format!("Failed to write header checksum: {}", e)
-                };
-                CryptoError::SystemError(msg)
-            })?;
-        
+        writer.write_all(&checksum).map_err(|e| {
+            let msg = if i18n::is_zh() {
+                format!("写入文件头校验和失败：{}", e)
+            } else {
+                format!("Failed to write header checksum: {}", e)
+            };
+            CryptoError::SystemError(msg)
+        })?;
+
         Ok(())
     }
-    
+
     /// Deserialize the header from binary format and read from a reader
     /// 从二进制格式反序列化头部并从读取器读取
     ///
@@ -300,151 +330,170 @@ impl EncryptedFileHeader {
     pub fn read_from<R: Read>(reader: &mut R) -> Result<Self> {
         // Read magic bytes (8 bytes)
         let mut magic = [0u8; 8];
-        reader.read_exact(&mut magic)
+        reader
+            .read_exact(&mut magic)
             .map_err(|_| CryptoError::InvalidFileFormat)?;
-        
+
         if magic != MAGIC_BYTES {
             return Err(CryptoError::InvalidFileFormat);
         }
-        
+
         // Start collecting header data for checksum verification
         let mut header_data = Vec::new();
         header_data.extend_from_slice(&magic);
-        
+
         // Read version (2 bytes)
         let mut version_bytes = [0u8; 2];
-        reader.read_exact(&mut version_bytes)
+        reader
+            .read_exact(&mut version_bytes)
             .map_err(|_| CryptoError::CorruptedHeader)?;
         header_data.extend_from_slice(&version_bytes);
         let version = u16::from_le_bytes(version_bytes);
-        
+
         // Validate version
         if version != CURRENT_VERSION {
             return Err(CryptoError::UnsupportedVersion(version));
         }
-        
+
         // Read algorithm ID (1 byte)
         let mut algo_byte = [0u8; 1];
-        reader.read_exact(&mut algo_byte)
+        reader
+            .read_exact(&mut algo_byte)
             .map_err(|_| CryptoError::CorruptedHeader)?;
         header_data.push(algo_byte[0]);
         let algorithm = Algorithm::from_u8(algo_byte[0])?;
-        
+
         // Read flags (1 byte)
         let mut flags_byte = [0u8; 1];
-        reader.read_exact(&mut flags_byte)
+        reader
+            .read_exact(&mut flags_byte)
             .map_err(|_| CryptoError::CorruptedHeader)?;
         header_data.push(flags_byte[0]);
         let compressed = (flags_byte[0] & 0x01) != 0;
-        
+
         // Read Compression Algorithm (1 byte)
         let mut comp_byte = [0u8; 1];
-        reader.read_exact(&mut comp_byte)
+        reader
+            .read_exact(&mut comp_byte)
             .map_err(|_| CryptoError::CorruptedHeader)?;
         header_data.push(comp_byte[0]);
-        
+
         let compression_algo = match comp_byte[0] {
             0x00 => None,
             0x01 => Some(CompressionAlgorithm::Gzip),
             0x02 => Some(CompressionAlgorithm::Zstd),
             _ => return Err(CryptoError::InvalidFileFormat),
         };
-        
+
         // Read KDF algorithm (1 byte)
         let mut kdf_byte = [0u8; 1];
-        reader.read_exact(&mut kdf_byte)
+        reader
+            .read_exact(&mut kdf_byte)
             .map_err(|_| CryptoError::CorruptedHeader)?;
         header_data.push(kdf_byte[0]);
-        
+
         let kdf = match kdf_byte[0] {
             0x00 => None,
             0x01 => Some(KdfAlgorithm::Pbkdf2Sha256),
             0x02 => Some(KdfAlgorithm::Argon2id),
             _ => return Err(CryptoError::InvalidFileFormat),
         };
-        
+
         // Read KDF iterations (4 bytes)
         let mut iterations_bytes = [0u8; 4];
-        reader.read_exact(&mut iterations_bytes)
+        reader
+            .read_exact(&mut iterations_bytes)
             .map_err(|_| CryptoError::CorruptedHeader)?;
         header_data.extend_from_slice(&iterations_bytes);
         let iterations_value = u32::from_le_bytes(iterations_bytes);
-        let kdf_iterations = if iterations_value == 0 { None } else { Some(iterations_value) };
-        
+        let kdf_iterations = if iterations_value == 0 {
+            None
+        } else {
+            Some(iterations_value)
+        };
+
         // Read salt length (1 byte)
         let mut salt_len_byte = [0u8; 1];
-        reader.read_exact(&mut salt_len_byte)
+        reader
+            .read_exact(&mut salt_len_byte)
             .map_err(|_| CryptoError::CorruptedHeader)?;
         header_data.push(salt_len_byte[0]);
         let salt_len = salt_len_byte[0] as usize;
-        
+
         // Read salt
         let salt = if salt_len > 0 {
             let mut salt_bytes = vec![0u8; salt_len];
-            reader.read_exact(&mut salt_bytes)
+            reader
+                .read_exact(&mut salt_bytes)
                 .map_err(|_| CryptoError::CorruptedHeader)?;
             header_data.extend_from_slice(&salt_bytes);
             Some(salt_bytes)
         } else {
             None
         };
-        
+
         // Read IV length (1 byte)
         let mut iv_len_byte = [0u8; 1];
-        reader.read_exact(&mut iv_len_byte)
+        reader
+            .read_exact(&mut iv_len_byte)
             .map_err(|_| CryptoError::CorruptedHeader)?;
         header_data.push(iv_len_byte[0]);
         let iv_len = iv_len_byte[0] as usize;
-        
+
         if iv_len == 0 {
             return Err(CryptoError::InvalidIV);
         }
-        
+
         // Read IV
         let mut iv = vec![0u8; iv_len];
-        reader.read_exact(&mut iv)
+        reader
+            .read_exact(&mut iv)
             .map_err(|_| CryptoError::CorruptedHeader)?;
         header_data.extend_from_slice(&iv);
-        
+
         // Read original size (8 bytes)
         let mut size_bytes = [0u8; 8];
-        reader.read_exact(&mut size_bytes)
+        reader
+            .read_exact(&mut size_bytes)
             .map_err(|_| CryptoError::CorruptedHeader)?;
         header_data.extend_from_slice(&size_bytes);
         let original_size = u64::from_le_bytes(size_bytes);
-        
+
         // Read metadata length (2 bytes)
         let mut metadata_len_bytes = [0u8; 2];
-        reader.read_exact(&mut metadata_len_bytes)
+        reader
+            .read_exact(&mut metadata_len_bytes)
             .map_err(|_| CryptoError::CorruptedHeader)?;
         header_data.extend_from_slice(&metadata_len_bytes);
         let metadata_len = u16::from_le_bytes(metadata_len_bytes) as usize;
-        
+
         // Read metadata
         let metadata = if metadata_len > 0 {
             let mut metadata_bytes = vec![0u8; metadata_len];
-            reader.read_exact(&mut metadata_bytes)
+            reader
+                .read_exact(&mut metadata_bytes)
                 .map_err(|_| CryptoError::CorruptedHeader)?;
             header_data.extend_from_slice(&metadata_bytes);
             metadata_bytes
         } else {
             Vec::new()
         };
-        
+
         // Read checksum (32 bytes)
         let mut checksum = [0u8; 32];
-        reader.read_exact(&mut checksum)
+        reader
+            .read_exact(&mut checksum)
             .map_err(|_| CryptoError::CorruptedHeader)?;
-        
+
         // Verify checksum
         let mut hasher = Sha256::new();
         hasher.update(&header_data);
         let computed_checksum = hasher.finalize();
-        
+
         if checksum != computed_checksum.as_slice() {
             return Err(CryptoError::CorruptedHeader);
         }
-        
+
         Ok(EncryptedFileHeader {
             magic,
             version,
@@ -459,6 +508,127 @@ impl EncryptedFileHeader {
             metadata,
         })
     }
+}
+
+pub fn streaming_metadata_from_header(
+    header: &EncryptedFileHeader,
+) -> Result<Option<StreamingMetadata>> {
+    if header.metadata.is_empty() {
+        return Ok(None);
+    }
+
+    let value: serde_json::Value =
+        serde_json::from_slice(&header.metadata).map_err(|_| CryptoError::InvalidMetadata)?;
+
+    match value.get("streaming") {
+        None => Ok(None),
+        Some(serde_json::Value::Bool(false)) => Ok(None),
+        Some(serde_json::Value::Bool(true)) => {
+            let metadata: StreamingMetadata =
+                serde_json::from_value(value).map_err(|_| CryptoError::InvalidMetadata)?;
+            validate_streaming_metadata(header, &metadata)?;
+            Ok(Some(metadata))
+        }
+        _ => Err(CryptoError::InvalidMetadata),
+    }
+}
+
+fn validate_streaming_metadata(
+    header: &EncryptedFileHeader,
+    metadata: &StreamingMetadata,
+) -> Result<()> {
+    if !metadata.streaming
+        || metadata.stream_version != STREAMING_FORMAT_VERSION
+        || metadata.chunk_size == 0
+        || metadata.chunk_size > MAX_STREAMING_CHUNK_SIZE
+    {
+        return Err(CryptoError::InvalidMetadata);
+    }
+
+    let stream_input_size = if metadata.stream_input_size > 0 || header.original_size == 0 {
+        metadata.stream_input_size
+    } else if header.compressed {
+        metadata
+            .compressed_size
+            .ok_or(CryptoError::InvalidMetadata)?
+    } else {
+        header.original_size
+    };
+
+    let expected_chunks = if stream_input_size == 0 {
+        0
+    } else {
+        (stream_input_size + metadata.chunk_size - 1) / metadata.chunk_size
+    };
+
+    if metadata.total_chunks != expected_chunks {
+        return Err(CryptoError::InvalidMetadata);
+    }
+
+    if metadata.payload_size < metadata.total_chunks.saturating_mul(4 + 16) {
+        return Err(CryptoError::InvalidMetadata);
+    }
+
+    Ok(())
+}
+
+fn build_streaming_metadata(
+    stream_input_size: u64,
+    total_chunks: u64,
+    payload_size: u64,
+    compressed_size: Option<u64>,
+) -> Result<Vec<u8>> {
+    let metadata = StreamingMetadata {
+        streaming: true,
+        stream_version: STREAMING_FORMAT_VERSION,
+        chunk_size: crate::crypto::CHUNK_SIZE as u64,
+        total_chunks,
+        payload_size,
+        stream_input_size,
+        compressed_size,
+    };
+
+    serde_json::to_vec(&metadata).map_err(|_| CryptoError::InvalidMetadata)
+}
+
+pub fn create_unique_temp_file(prefix: &str) -> Result<(std::path::PathBuf, std::fs::File)> {
+    use std::fs::OpenOptions;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let temp_dir = std::env::temp_dir();
+    let pid = std::process::id();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+
+    for attempt in 0..100u32 {
+        let path = temp_dir.join(format!("{}_{}_{}_{}.tmp", prefix, pid, now, attempt));
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => return Ok((path, file)),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(CryptoError::FileWriteError(path, e)),
+        }
+    }
+
+    let msg = if i18n::is_zh() {
+        "无法创建唯一临时文件".to_string()
+    } else {
+        "Failed to create a unique temporary file".to_string()
+    };
+    Err(CryptoError::SystemError(msg))
+}
+
+pub fn is_directory_archive_file(path: &std::path::Path) -> Result<bool> {
+    use std::io::Read;
+
+    let mut file =
+        std::fs::File::open(path).map_err(|e| CryptoError::FileReadError(path.to_path_buf(), e))?;
+    let mut magic = [0u8; 6];
+    let bytes_read = file
+        .read(&mut magic)
+        .map_err(|e| CryptoError::FileReadError(path.to_path_buf(), e))?;
+    Ok(bytes_read == magic.len() && &magic == b"CRYTAR")
 }
 
 /// Encrypt a file with the specified algorithm and key
@@ -489,30 +659,99 @@ pub fn encrypt_file(
     compression: Option<CompressionAlgorithm>,
     kdf_params: Option<(KdfAlgorithm, u32, Vec<u8>)>, // (kdf, iterations, salt) / (kdf, 迭代次数, 盐)
 ) -> Result<()> {
+    encrypt_file_with_progress(
+        input_path,
+        output_path,
+        key,
+        algorithm,
+        compression,
+        kdf_params,
+        None,
+    )
+}
+
+pub fn encrypt_file_with_progress(
+    input_path: &std::path::Path,
+    output_path: &std::path::Path,
+    key: &crate::key_manager::SecureBytes,
+    algorithm: Algorithm,
+    compression: Option<CompressionAlgorithm>,
+    kdf_params: Option<(KdfAlgorithm, u32, Vec<u8>)>,
+    progress: FileProgressCallback<'_>,
+) -> Result<()> {
+    let metadata = std::fs::metadata(input_path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            CryptoError::FileNotFound(input_path.to_path_buf())
+        } else if e.kind() == std::io::ErrorKind::PermissionDenied {
+            CryptoError::PermissionDenied(input_path.to_path_buf())
+        } else {
+            CryptoError::FileReadError(input_path.to_path_buf(), e)
+        }
+    })?;
+
+    let original_size = metadata.len();
+    let use_streaming = original_size >= STREAMING_THRESHOLD && algorithm.supports_streaming();
+
+    if use_streaming {
+        encrypt_file_streaming(
+            input_path,
+            output_path,
+            key,
+            algorithm,
+            compression,
+            kdf_params,
+            original_size,
+            progress,
+        )
+    } else {
+        encrypt_file_non_streaming(
+            input_path,
+            output_path,
+            key,
+            algorithm,
+            compression,
+            kdf_params,
+            progress,
+        )
+    }
+}
+
+fn encrypt_file_non_streaming(
+    input_path: &std::path::Path,
+    output_path: &std::path::Path,
+    key: &crate::key_manager::SecureBytes,
+    algorithm: Algorithm,
+    compression: Option<CompressionAlgorithm>,
+    kdf_params: Option<(KdfAlgorithm, u32, Vec<u8>)>,
+    mut progress: FileProgressCallback<'_>,
+) -> Result<()> {
+    use crate::compression;
+    use crate::crypto;
     use std::fs::File;
     use std::io::BufReader;
-    use crate::crypto;
-    use crate::compression;
-    
+
     // Read the plaintext file
-    let input_file = File::open(input_path)
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                CryptoError::FileNotFound(input_path.to_path_buf())
-            } else if e.kind() == std::io::ErrorKind::PermissionDenied {
-                CryptoError::PermissionDenied(input_path.to_path_buf())
-            } else {
-                CryptoError::FileReadError(input_path.to_path_buf(), e)
-            }
-        })?;
-    
+    let input_file = File::open(input_path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            CryptoError::FileNotFound(input_path.to_path_buf())
+        } else if e.kind() == std::io::ErrorKind::PermissionDenied {
+            CryptoError::PermissionDenied(input_path.to_path_buf())
+        } else {
+            CryptoError::FileReadError(input_path.to_path_buf(), e)
+        }
+    })?;
+
     let mut reader = BufReader::new(input_file);
     let mut plaintext = Vec::new();
-    reader.read_to_end(&mut plaintext)
+    reader
+        .read_to_end(&mut plaintext)
         .map_err(|e| CryptoError::FileReadError(input_path.to_path_buf(), e))?;
-    
+
     let original_size = plaintext.len() as u64;
-    
+    if let Some(callback) = progress.as_mut() {
+        callback(original_size, original_size);
+    }
+
     // Optionally compress the data
     let data_to_encrypt = if let Some(comp_algo) = compression {
         let comp_context = compression::CompressionContext::new(comp_algo);
@@ -520,7 +759,7 @@ pub fn encrypt_file(
     } else {
         plaintext
     };
-    
+
     // Encrypt the data based on the algorithm
     let (ciphertext, iv, tag, mac) = match algorithm {
         Algorithm::Aes256Gcm => {
@@ -559,51 +798,191 @@ pub fn encrypt_file(
             return Err(CryptoError::InvalidArguments(msg));
         }
     };
-    
+
     // Create the encrypted file header
     let mut header = EncryptedFileHeader::new(algorithm, iv, original_size);
-    
+
     // Add KDF parameters if provided
     if let Some((kdf, iterations, salt)) = kdf_params {
         header = header.with_kdf(kdf, iterations, salt);
     }
-    
+
     // Add compression info if used
     if let Some(comp_algo) = compression {
         header = header.with_compression(comp_algo);
     }
-    
+
     // Use atomic file operations for safe writing
     let mut atomic_file = atomic::AtomicFile::new(output_path)?;
-    
+
     // Write the header
     {
         let file = atomic_file.file_mut()?;
         let mut writer = std::io::BufWriter::new(file);
         header.write_to(&mut writer)?;
-        
+
         // Write the ciphertext
-        writer.write_all(&ciphertext)
+        writer
+            .write_all(&ciphertext)
             .map_err(|e| CryptoError::from_io_error(e, output_path.to_path_buf(), "write"))?;
-        
+
         // Write the authentication tag or MAC
         if let Some(tag_data) = tag {
-            writer.write_all(&tag_data)
+            writer
+                .write_all(&tag_data)
                 .map_err(|e| CryptoError::from_io_error(e, output_path.to_path_buf(), "write"))?;
         } else if let Some(mac_data) = mac {
-            writer.write_all(&mac_data)
+            writer
+                .write_all(&mac_data)
                 .map_err(|e| CryptoError::from_io_error(e, output_path.to_path_buf(), "write"))?;
         }
-        
-        writer.flush()
+
+        writer
+            .flush()
             .map_err(|e| CryptoError::from_io_error(e, output_path.to_path_buf(), "write"))?;
     }
-    
+
     // Flush and commit the atomic operation
     atomic_file.flush()?;
     atomic_file.commit()?;
-    
+
     Ok(())
+}
+
+fn encrypt_file_streaming(
+    input_path: &std::path::Path,
+    output_path: &std::path::Path,
+    key: &crate::key_manager::SecureBytes,
+    algorithm: Algorithm,
+    compression: Option<CompressionAlgorithm>,
+    kdf_params: Option<(KdfAlgorithm, u32, Vec<u8>)>,
+    original_size: u64,
+    mut progress: FileProgressCallback<'_>,
+) -> Result<()> {
+    use crate::compression;
+    use crate::crypto;
+    use std::fs::File;
+    use std::io::{BufReader, BufWriter};
+
+    let mut compressed_temp_path = None;
+    let (stream_input_path, stream_input_size, compressed_size) =
+        if let Some(comp_algo) = compression {
+            let input_file = File::open(input_path).map_err(|e| {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    CryptoError::FileNotFound(input_path.to_path_buf())
+                } else if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    CryptoError::PermissionDenied(input_path.to_path_buf())
+                } else {
+                    CryptoError::FileReadError(input_path.to_path_buf(), e)
+                }
+            })?;
+            let (temp_path, temp_file) = create_unique_temp_file("crypto_cli_compressed")?;
+            let mut reader = BufReader::new(input_file);
+            let mut writer = BufWriter::new(temp_file);
+            let context = compression::CompressionContext::new(comp_algo);
+            compression::compress_stream(&mut reader, &mut writer, &context)?;
+            writer
+                .flush()
+                .map_err(|e| CryptoError::FileWriteError(temp_path.clone(), e))?;
+
+            let compressed_len = std::fs::metadata(&temp_path)
+                .map_err(|e| CryptoError::FileReadError(temp_path.clone(), e))?
+                .len();
+            compressed_temp_path = Some(temp_path.clone());
+            (temp_path, compressed_len, Some(compressed_len))
+        } else {
+            (input_path.to_path_buf(), original_size, None)
+        };
+
+    let mut payload_temp_path = None;
+    let result = (|| {
+        let input_file = File::open(&stream_input_path)
+            .map_err(|e| CryptoError::FileReadError(stream_input_path.clone(), e))?;
+        let mut reader = BufReader::new(input_file);
+
+        let (payload_path, payload_file) = create_unique_temp_file("crypto_cli_stream_payload")?;
+        payload_temp_path = Some(payload_path.clone());
+        let mut payload_writer = BufWriter::new(payload_file);
+        let mut processed = 0u64;
+        let mut crypto_progress = |delta: u64| {
+            processed = processed.saturating_add(delta);
+            if let Some(callback) = progress.as_mut() {
+                callback(processed.min(stream_input_size), stream_input_size);
+            }
+        };
+
+        let stream_result = match algorithm {
+            Algorithm::Aes256Gcm => crypto::encrypt_stream_aes_256_gcm_with_progress(
+                &mut reader,
+                &mut payload_writer,
+                key,
+                Some(&mut crypto_progress),
+            )?,
+            Algorithm::ChaCha20Poly1305 => crypto::encrypt_stream_chacha20_poly1305_with_progress(
+                &mut reader,
+                &mut payload_writer,
+                key,
+                Some(&mut crypto_progress),
+            )?,
+            _ => {
+                let msg = if i18n::is_zh() {
+                    "所选算法不支持流式文件加密".to_string()
+                } else {
+                    "Selected algorithm does not support streaming file encryption".to_string()
+                };
+                return Err(CryptoError::InvalidArguments(msg));
+            }
+        };
+        payload_writer
+            .flush()
+            .map_err(|e| CryptoError::FileWriteError(payload_path.clone(), e))?;
+        drop(payload_writer);
+
+        let mut header = EncryptedFileHeader::new(algorithm, stream_result.iv, original_size);
+
+        if let Some((kdf, iterations, salt)) = kdf_params {
+            header = header.with_kdf(kdf, iterations, salt);
+        }
+
+        if let Some(comp_algo) = compression {
+            header = header.with_compression(comp_algo);
+        }
+
+        header = header.with_metadata(build_streaming_metadata(
+            stream_input_size,
+            stream_result.total_chunks,
+            stream_result.encrypted_payload_size,
+            compressed_size,
+        )?);
+
+        let mut atomic_file = atomic::AtomicFile::new(output_path)?;
+        {
+            let file = atomic_file.file_mut()?;
+            let mut writer = BufWriter::new(file);
+            header.write_to(&mut writer)?;
+            let mut payload_reader = BufReader::new(
+                File::open(&payload_path)
+                    .map_err(|e| CryptoError::FileReadError(payload_path.clone(), e))?,
+            );
+            std::io::copy(&mut payload_reader, &mut writer)
+                .map_err(|e| CryptoError::from_io_error(e, output_path.to_path_buf(), "write"))?;
+            writer
+                .flush()
+                .map_err(|e| CryptoError::from_io_error(e, output_path.to_path_buf(), "write"))?;
+        }
+        atomic_file.flush()?;
+        atomic_file.commit()?;
+        Ok(())
+    })();
+
+    if let Some(temp_path) = compressed_temp_path {
+        let _ = std::fs::remove_file(temp_path);
+    }
+    if let Some(temp_path) = payload_temp_path {
+        let _ = std::fs::remove_file(temp_path);
+    }
+
+    result
 }
 
 /// Decrypt a file that was encrypted with encrypt_file
@@ -629,37 +1008,74 @@ pub fn decrypt_file(
     output_path: &std::path::Path,
     key: &crate::key_manager::SecureBytes,
 ) -> Result<()> {
+    decrypt_file_with_progress(input_path, output_path, key, None)
+}
+
+pub fn decrypt_file_with_progress(
+    input_path: &std::path::Path,
+    output_path: &std::path::Path,
+    key: &crate::key_manager::SecureBytes,
+    progress: FileProgressCallback<'_>,
+) -> Result<()> {
     use std::fs::File;
-    use std::io::BufReader;
-    use crate::crypto;
-    use crate::compression;
-    
-    // Open and read the encrypted file
-    let input_file = File::open(input_path)
-        .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                CryptoError::FileNotFound(input_path.to_path_buf())
-            } else if e.kind() == std::io::ErrorKind::PermissionDenied {
-                CryptoError::PermissionDenied(input_path.to_path_buf())
-            } else {
-                CryptoError::FileReadError(input_path.to_path_buf(), e)
-            }
-        })?;
-    
+    use std::io::{BufReader, Seek};
+
+    let input_file = File::open(input_path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            CryptoError::FileNotFound(input_path.to_path_buf())
+        } else if e.kind() == std::io::ErrorKind::PermissionDenied {
+            CryptoError::PermissionDenied(input_path.to_path_buf())
+        } else {
+            CryptoError::FileReadError(input_path.to_path_buf(), e)
+        }
+    })?;
+
+    let encrypted_file_size = input_file
+        .metadata()
+        .map_err(|e| CryptoError::FileReadError(input_path.to_path_buf(), e))?
+        .len();
+
     let mut reader = BufReader::new(input_file);
-    
-    // Read and parse the header
+
     let header = EncryptedFileHeader::read_from(&mut reader)?;
-    
+    let header_end = reader
+        .stream_position()
+        .map_err(|e| CryptoError::FileReadError(input_path.to_path_buf(), e))?;
+
+    if let Some(stream_metadata) = streaming_metadata_from_header(&header)? {
+        let actual_payload_size = encrypted_file_size
+            .checked_sub(header_end)
+            .ok_or(CryptoError::InvalidFileFormat)?;
+        if stream_metadata.payload_size != actual_payload_size {
+            return Err(CryptoError::InvalidMetadata);
+        }
+        decrypt_file_streaming(reader, output_path, key, header, stream_metadata, progress)
+    } else {
+        decrypt_file_non_streaming(reader, input_path, output_path, key, header, progress)
+    }
+}
+
+fn decrypt_file_non_streaming<R: Read>(
+    mut reader: R,
+    input_path: &std::path::Path,
+    output_path: &std::path::Path,
+    key: &crate::key_manager::SecureBytes,
+    header: EncryptedFileHeader,
+    mut progress: FileProgressCallback<'_>,
+) -> Result<()> {
+    use crate::compression;
+    use crate::crypto;
+
     // Read the ciphertext (everything after header except tag/mac)
     let mut encrypted_data = Vec::new();
-    reader.read_to_end(&mut encrypted_data)
+    reader
+        .read_to_end(&mut encrypted_data)
         .map_err(|e| CryptoError::FileReadError(input_path.to_path_buf(), e))?;
-    
+
     // Determine tag/mac size based on algorithm
     let auth_size = match header.algorithm {
         Algorithm::Aes256Gcm | Algorithm::ChaCha20Poly1305 => 16, // AEAD tag
-        Algorithm::Aes256Cbc => 32, // HMAC-SHA256
+        Algorithm::Aes256Cbc => 32,                               // HMAC-SHA256
         _ => {
             let msg = if i18n::is_zh() {
                 "不支持使用非对称算法直接解密文件".to_string()
@@ -669,7 +1085,7 @@ pub fn decrypt_file(
             return Err(CryptoError::InvalidArguments(msg));
         }
     };
-    
+
     if encrypted_data.len() < auth_size {
         let msg = if i18n::is_zh() {
             "文件过短".to_string()
@@ -678,12 +1094,12 @@ pub fn decrypt_file(
         };
         return Err(CryptoError::DecryptionFailed(msg));
     }
-    
+
     // Split ciphertext and authentication data
     let split_point = encrypted_data.len() - auth_size;
     let ciphertext = &encrypted_data[..split_point];
     let auth_data = &encrypted_data[split_point..];
-    
+
     // Decrypt based on algorithm
     let decrypted_data = match header.algorithm {
         Algorithm::Aes256Gcm => {
@@ -722,32 +1138,171 @@ pub fn decrypt_file(
             return Err(CryptoError::InvalidArguments(msg));
         }
     };
-    
+
     // Optionally decompress the data
     let plaintext = if header.compressed {
-        let comp_algo = header.compression_algo
+        let comp_algo = header
+            .compression_algo
             .ok_or(CryptoError::InvalidMetadata)?;
         compression::decompress(&decrypted_data, comp_algo)?
     } else {
         decrypted_data
     };
-    
+
     // Use atomic file operations for safe writing
     let mut atomic_file = atomic::AtomicFile::new(output_path)?;
-    
+
     // Write the plaintext
     atomic_file.write_all(&plaintext)?;
-    
+    if let Some(callback) = progress.as_mut() {
+        callback(plaintext.len() as u64, plaintext.len() as u64);
+    }
+
     // Flush and commit the atomic operation
     atomic_file.flush()?;
     atomic_file.commit()?;
-    
+
     Ok(())
+}
+
+fn decrypt_file_streaming<R: Read>(
+    mut reader: R,
+    output_path: &std::path::Path,
+    key: &crate::key_manager::SecureBytes,
+    header: EncryptedFileHeader,
+    stream_metadata: StreamingMetadata,
+    mut progress: FileProgressCallback<'_>,
+) -> Result<()> {
+    use crate::compression;
+    use crate::crypto;
+    use std::fs::File;
+    use std::io::{BufReader, BufWriter};
+
+    let mut decrypted_temp_path = None;
+    let result = (|| {
+        let mut processed = 0u64;
+        let mut crypto_progress = |delta: u64| {
+            processed = processed.saturating_add(delta);
+            if let Some(callback) = progress.as_mut() {
+                callback(
+                    processed.min(stream_metadata.payload_size),
+                    stream_metadata.payload_size,
+                );
+            }
+        };
+
+        if header.compressed {
+            let comp_algo = header
+                .compression_algo
+                .ok_or(CryptoError::InvalidMetadata)?;
+            let (temp_path, temp_file) = create_unique_temp_file("crypto_cli_decrypted")?;
+            decrypted_temp_path = Some(temp_path.clone());
+            {
+                let mut temp_writer = BufWriter::new(temp_file);
+                match header.algorithm {
+                    Algorithm::Aes256Gcm => crypto::decrypt_stream_aes_256_gcm_with_progress(
+                        &mut reader,
+                        &mut temp_writer,
+                        key,
+                        &header.iv,
+                        stream_metadata.total_chunks,
+                        Some(&mut crypto_progress),
+                    )?,
+                    Algorithm::ChaCha20Poly1305 => {
+                        crypto::decrypt_stream_chacha20_poly1305_with_progress(
+                            &mut reader,
+                            &mut temp_writer,
+                            key,
+                            &header.iv,
+                            stream_metadata.total_chunks,
+                            Some(&mut crypto_progress),
+                        )?
+                    }
+                    _ => {
+                        let msg = if i18n::is_zh() {
+                            "所选算法不支持流式文件解密".to_string()
+                        } else {
+                            "Selected algorithm does not support streaming file decryption"
+                                .to_string()
+                        };
+                        return Err(CryptoError::InvalidArguments(msg));
+                    }
+                }
+                temp_writer
+                    .flush()
+                    .map_err(|e| CryptoError::FileWriteError(temp_path.clone(), e))?;
+            }
+
+            let mut temp_reader = BufReader::new(
+                File::open(&temp_path)
+                    .map_err(|e| CryptoError::FileReadError(temp_path.clone(), e))?,
+            );
+            let mut atomic_file = atomic::AtomicFile::new(output_path)?;
+            {
+                let file = atomic_file.file_mut()?;
+                let mut output_writer = BufWriter::new(file);
+                compression::decompress_stream(&mut temp_reader, &mut output_writer, comp_algo)?;
+                output_writer.flush().map_err(|e| {
+                    CryptoError::from_io_error(e, output_path.to_path_buf(), "write")
+                })?;
+            }
+            atomic_file.flush()?;
+            atomic_file.commit()?;
+        } else {
+            let mut atomic_file = atomic::AtomicFile::new(output_path)?;
+            {
+                let file = atomic_file.file_mut()?;
+                let mut writer = BufWriter::new(file);
+                match header.algorithm {
+                    Algorithm::Aes256Gcm => crypto::decrypt_stream_aes_256_gcm_with_progress(
+                        &mut reader,
+                        &mut writer,
+                        key,
+                        &header.iv,
+                        stream_metadata.total_chunks,
+                        Some(&mut crypto_progress),
+                    )?,
+                    Algorithm::ChaCha20Poly1305 => {
+                        crypto::decrypt_stream_chacha20_poly1305_with_progress(
+                            &mut reader,
+                            &mut writer,
+                            key,
+                            &header.iv,
+                            stream_metadata.total_chunks,
+                            Some(&mut crypto_progress),
+                        )?
+                    }
+                    _ => {
+                        let msg = if i18n::is_zh() {
+                            "所选算法不支持流式文件解密".to_string()
+                        } else {
+                            "Selected algorithm does not support streaming file decryption"
+                                .to_string()
+                        };
+                        return Err(CryptoError::InvalidArguments(msg));
+                    }
+                }
+                writer.flush().map_err(|e| {
+                    CryptoError::from_io_error(e, output_path.to_path_buf(), "write")
+                })?;
+            }
+            atomic_file.flush()?;
+            atomic_file.commit()?;
+        }
+
+        Ok(())
+    })();
+
+    if let Some(temp_path) = decrypted_temp_path {
+        let _ = std::fs::remove_file(temp_path);
+    }
+
+    result
 }
 
 /// Atomic file operations module
 /// 原子文件操作模块
-/// 
+///
 /// This module provides utilities for atomic file operations that ensure
 /// data integrity even in the presence of failures or crashes.
 /// 此模块提供原子文件操作的实用工具，即使在出现故障或崩溃时也能确保数据完整性。
@@ -757,7 +1312,7 @@ pub mod atomic {
     use std::fs::File;
     use std::io::Write;
     use std::path::{Path, PathBuf};
-    
+
     /// A temporary file that will be cleaned up on drop if not committed
     /// 如果未提交，将在销毁时清理的临时文件
     pub struct AtomicFile {
@@ -766,20 +1321,62 @@ pub mod atomic {
         file: Option<File>,
         committed: bool,
     }
-    
+
     impl AtomicFile {
         /// Create a new atomic file operation
         /// 创建新的原子文件操作
-        /// 
+        ///
         /// This creates a temporary file that will be atomically renamed
         /// to the final path when committed.
         /// 这会创建一个临时文件，在提交时将原子地重命名为最终路径。
         pub fn new(final_path: &Path) -> Result<Self> {
-            let temp_path = final_path.with_extension("tmp");
-            
-            let file = File::create(&temp_path)
-                .map_err(|e| CryptoError::from_io_error(e, temp_path.clone(), "write"))?;
-            
+            let parent = final_path.parent().unwrap_or_else(|| Path::new("."));
+            let filename = final_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("output");
+            let pid = std::process::id();
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|duration| duration.as_nanos())
+                .unwrap_or(0);
+
+            let mut last_error = None;
+            let mut created = None;
+            for attempt in 0..100u32 {
+                let temp_path =
+                    parent.join(format!(".{}.{}.{}.{}.tmp", filename, pid, now, attempt));
+                match std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&temp_path)
+                {
+                    Ok(file) => {
+                        created = Some((temp_path, file));
+                        break;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                        last_error = Some(e);
+                    }
+                    Err(e) => {
+                        return Err(CryptoError::from_io_error(e, temp_path, "write"));
+                    }
+                }
+            }
+
+            let (temp_path, file) = created.ok_or_else(|| {
+                let msg = if i18n::is_zh() {
+                    "无法创建唯一原子临时文件".to_string()
+                } else {
+                    "Failed to create a unique atomic temporary file".to_string()
+                };
+                if let Some(err) = last_error {
+                    CryptoError::SystemError(format!("{}: {}", msg, err))
+                } else {
+                    CryptoError::SystemError(msg)
+                }
+            })?;
+
             Ok(AtomicFile {
                 temp_path,
                 final_path: final_path.to_path_buf(),
@@ -787,7 +1384,7 @@ pub mod atomic {
                 committed: false,
             })
         }
-        
+
         /// Get a mutable reference to the underlying file
         /// 获取底层文件的可变引用
         pub fn file_mut(&mut self) -> Result<&mut File> {
@@ -800,7 +1397,7 @@ pub mod atomic {
                 CryptoError::SystemError(msg)
             })
         }
-        
+
         /// Write data to the temporary file
         /// 将数据写入临时文件
         pub fn write_all(&mut self, data: &[u8]) -> Result<()> {
@@ -808,21 +1405,21 @@ pub mod atomic {
             file.write_all(data)
                 .map_err(|e| CryptoError::from_io_error(e, self.temp_path.clone(), "write"))
         }
-        
+
         /// Flush the file to ensure all data is written
         pub fn flush(&mut self) -> Result<()> {
             let temp_path = self.temp_path.clone();
             let file = self.file_mut()?;
             file.flush()
                 .map_err(|e| CryptoError::from_io_error(e, temp_path.clone(), "write"))?;
-            
+
             // Sync to disk for durability
             file.sync_all()
                 .map_err(|e| CryptoError::from_io_error(e, temp_path, "write"))
         }
-        
+
         /// Commit the atomic operation by renaming temp file to final path
-        /// 
+        ///
         /// This is an atomic operation on most filesystems. If this succeeds,
         /// the file will not be cleaned up on drop.
         pub fn commit(mut self) -> Result<()> {
@@ -830,26 +1427,26 @@ pub mod atomic {
             if let Some(file) = self.file.take() {
                 drop(file);
             }
-            
+
             // Atomically rename temp file to final path
             std::fs::rename(&self.temp_path, &self.final_path)
                 .map_err(|e| CryptoError::from_io_error(e, self.final_path.clone(), "write"))?;
-            
+
             self.committed = true;
             Ok(())
         }
-        
+
         /// Get the temporary file path
         pub fn temp_path(&self) -> &Path {
             &self.temp_path
         }
-        
+
         /// Get the final file path
         pub fn final_path(&self) -> &Path {
             &self.final_path
         }
     }
-    
+
     impl Drop for AtomicFile {
         fn drop(&mut self) {
             // If not committed, clean up the temporary file
@@ -858,15 +1455,15 @@ pub mod atomic {
                 if let Some(file) = self.file.take() {
                     drop(file);
                 }
-                
+
                 // Try to remove the temp file, but don't panic if it fails
                 let _ = std::fs::remove_file(&self.temp_path);
             }
         }
     }
-    
+
     /// Write data to a file atomically
-    /// 
+    ///
     /// This function writes data to a temporary file and then atomically
     /// renames it to the final path. If any error occurs, the temporary
     /// file is cleaned up.

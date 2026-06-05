@@ -20,7 +20,7 @@
 - ✅ **对称和非对称加密**：灵活选择加密方式
 - ✅ **密钥派生**：支持 Argon2id 和 PBKDF2-SHA256
 - ✅ **文件和目录加密**：可加密单个文件或整个目录结构
-- ✅ **流式处理**：高效处理大文件，内存占用恒定
+- ✅ **自动大文件流式处理**：AES-256-GCM 和 ChaCha20-Poly1305 文件达到 64 MiB 后自动使用流式格式
 - ✅ **压缩支持**：可选的 Gzip 或 Zstd 压缩
 - ✅ **认证加密**：使用 AEAD 模式防止篡改
 - ✅ **安全内存管理**：敏感数据在内存中自动清零
@@ -408,13 +408,20 @@ unset BACKUP_PASSWORD
 ### 场景 4：大文件加密
 
 ```bash
-# 加密大文件（使用流式处理，内存占用恒定）
+# 加密大文件（AES-256-GCM/ChaCha20-Poly1305 达到 64 MiB 自动使用流式格式）
 crypto encrypt -i large_video.mp4 -o large_video.mp4.enc \
   -a chacha20-poly1305 -v
 
 # 工具会显示进度条
 # [====================] 100% (1073741824/1073741824 bytes)
 ```
+
+大文件规则：
+
+- 小于 64 MiB 的文件继续使用原有非流式格式，保持兼容。
+- 大于或等于 64 MiB 且算法为 AES-256-GCM 或 ChaCha20-Poly1305 时，自动写出流式格式。
+- AES-256-CBC、RSA-OAEP 和 ECIES-P256 暂不支持流式文件格式；这些算法会继续使用原有非流式路径。
+- 启用 gzip/zstd 压缩的大文件会先流式压缩到唯一临时文件，再按临时文件大小进行流式加密；解密时也避免把完整大文件读入内存。
 
 ### 场景 5：查看加密文件信息
 
@@ -427,6 +434,10 @@ crypto info -i encrypted_file.enc
 # Algorithm: AES-256-GCM
 # KDF: Argon2id (100000 iterations)
 # Compressed: Yes (zstd)
+# Streaming: Yes
+# Stream Version: 1
+# Chunk Size: 65536 bytes
+# Total Chunks: 16384
 # Original size: 2048576 bytes
 # Encrypted size: 1534892 bytes
 ```
@@ -468,7 +479,7 @@ crypto info -i encrypted_file.enc
 
 - ✅ 敏感数据（密钥、密码）在内存中使用后自动清零
 - ✅ 使用 Rust 的内存安全特性防止缓冲区溢出
-- ✅ 流式处理大文件，避免将整个文件加载到内存
+- ✅ AES-256-GCM 和 ChaCha20-Poly1305 大文件会自动流式处理，避免将完整文件加载到内存
 
 ### 文件操作安全
 
@@ -506,6 +517,35 @@ crypto info -i encrypted_file.enc
 └─────────────────────────────────────────┘
 ```
 
+非流式文件的数据区仍为：
+
+```
+加密数据 || 认证标签/MAC
+```
+
+流式文件通过 metadata JSON 标记：
+
+```json
+{
+  "streaming": true,
+  "stream_version": 1,
+  "chunk_size": 65536,
+  "total_chunks": 16384,
+  "payload_size": 1074003968,
+  "stream_input_size": 1073741824
+}
+```
+
+流式数据区为：
+
+```
+[chunk_0_len(u32)][chunk_0_ciphertext_and_tag]
+[chunk_1_len(u32)][chunk_1_ciphertext_and_tag]
+...
+```
+
+旧文件没有 `metadata.streaming` 时会按非流式文件处理。流式解密会校验 metadata、分块长度、认证标签、截断和多余尾部数据。
+
 这种格式确保：
 - ✅ 文件自描述，包含所有解密所需信息
 - ✅ 向前兼容，支持未来版本扩展
@@ -515,9 +555,10 @@ crypto info -i encrypted_file.enc
 
 ### 流式处理
 
-- 大文件使用 64KB 缓冲区进行流式处理
-- 内存占用恒定，不受文件大小影响
-- 适合加密 GB 级别的文件
+- AES-256-GCM 和 ChaCha20-Poly1305 在输入文件达到 64 MiB 后自动使用 64KB 分块流式处理
+- 非压缩大文件主数据路径不会把完整文件读入内存
+- 压缩大文件使用唯一临时文件衔接压缩和加密阶段
+- 非流式算法仍使用原有整体读入路径
 
 ### 并行处理
 

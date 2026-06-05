@@ -1,9 +1,9 @@
 // CLI module - command-line interface and argument parsing
 // CLI 模块 - 命令行接口和参数解析
 
+use crate::i18n;
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
-use crate::i18n;
 
 /// Cryptographic CLI Tool - Encrypt and decrypt files and directories
 /// 加密 CLI 工具 - 加密和解密文件及目录
@@ -14,7 +14,14 @@ use crate::i18n;
 pub struct Cli {
     /// Output language (en or zh)
     /// 输出语言（en 或 zh）
-    #[arg(long, short = 'l', value_name = "LANG", default_value = "en", global = true, allow_hyphen_values = true)]
+    #[arg(
+        long,
+        short = 'l',
+        value_name = "LANG",
+        default_value = "en",
+        global = true,
+        allow_hyphen_values = true
+    )]
     pub language: String,
 
     /// Start interactive encryption/decryption wizard
@@ -34,22 +41,22 @@ pub enum Command {
     /// 加密文件或目录
     #[command(aliases = ["e", "enc"])]
     Encrypt(EncryptArgs),
-    
+
     /// Decrypt a file or directory
     /// 解密文件或目录
     #[command(aliases = ["d", "dec"])]
     Decrypt(DecryptArgs),
-    
+
     /// Generate cryptographic keys
     /// 生成加密密钥
     #[command(aliases = ["k", "kg"])]
     Keygen(KeygenArgs),
-    
+
     /// List all supported encryption algorithms
     /// 列出所有支持的加密算法
     #[command(aliases = ["ls", "list", "algos"])]
     ListAlgorithms,
-    
+
     /// Display information about an encrypted file
     /// 显示加密文件的信息
     #[command(aliases = ["i"])]
@@ -68,47 +75,47 @@ pub struct EncryptArgs {
     /// 要加密的输入文件或目录
     #[arg(short, long, value_name = "FILE")]
     pub input: PathBuf,
-    
+
     /// Output file or directory (defaults to input + .enc)
     /// 输出文件或目录（默认为输入文件名 + .enc）
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,
-    
+
     /// Encryption algorithm to use
     /// 使用的加密算法
     #[arg(short, long, value_name = "ALGORITHM", default_value = "aes-256-gcm")]
     pub algorithm: String,
-    
+
     /// Key source: password, env, or keyfile
     /// 密钥来源：password（密码）、env（环境变量）或 keyfile（密钥文件）
     #[arg(short, long, value_name = "SOURCE", default_value = "password")]
     pub key_source: String,
-    
+
     /// Environment variable name for password (when key-source=env)
     /// 密码的环境变量名（当 key-source=env 时）
     #[arg(long, short = 'p', value_name = "VAR", alias = "pass-env")]
     pub password_env: Option<String>,
-    
+
     /// Key file path (when key-source=keyfile)
     /// 密钥文件路径（当 key-source=keyfile 时）
     #[arg(long, value_name = "FILE")]
     pub keyfile: Option<PathBuf>,
-    
+
     /// Compression algorithm (gzip or zstd)
     /// 压缩算法（gzip 或 zstd）
     #[arg(short, long, value_name = "ALGORITHM")]
     pub compress: Option<String>,
-    
+
     /// Compression level (1-9 for gzip, 1-22 for zstd)
     /// 压缩级别（gzip: 1-9，zstd: 1-22）
     #[arg(long, value_name = "LEVEL")]
     pub compression_level: Option<u32>,
-    
+
     /// Recursively encrypt directories
     /// 递归加密目录
     #[arg(short, long)]
     pub recursive: bool,
-    
+
     /// Verbose output
     /// 详细输出
     #[arg(short, long)]
@@ -123,27 +130,27 @@ pub struct DecryptArgs {
     /// 输入的加密文件或目录
     #[arg(short, long, value_name = "FILE")]
     pub input: PathBuf,
-    
+
     /// Output file or directory (defaults to input without .enc)
     /// 输出文件或目录（默认为移除 .enc 扩展名的输入文件名）
     #[arg(short, long, value_name = "FILE")]
     pub output: Option<PathBuf>,
-    
+
     /// Key source: password, env, or keyfile
     /// 密钥来源：password（密码）、env（环境变量）或 keyfile（密钥文件）
     #[arg(short, long, value_name = "SOURCE", default_value = "password")]
     pub key_source: String,
-    
+
     /// Environment variable name for password (when key-source=env)
     /// 密码的环境变量名（当 key-source=env 时）
     #[arg(long, short = 'p', value_name = "VAR", alias = "pass-env")]
     pub password_env: Option<String>,
-    
+
     /// Key file path (when key-source=keyfile)
     /// 密钥文件路径（当 key-source=keyfile 时）
     #[arg(long, value_name = "FILE")]
     pub keyfile: Option<PathBuf>,
-    
+
     /// Verbose output
     /// 详细输出
     #[arg(short, long)]
@@ -158,17 +165,17 @@ pub struct KeygenArgs {
     /// 要生成密钥的算法
     #[arg(short, long, value_name = "ALGORITHM")]
     pub algorithm: String,
-    
+
     /// Output file for the key (or key pair)
     /// 密钥（或密钥对）的输出文件
     #[arg(short, long, value_name = "FILE")]
     pub output: PathBuf,
-    
+
     /// Export format (raw or pem)
     /// 导出格式（raw 或 pem）
     #[arg(short, long, value_name = "FORMAT", default_value = "pem")]
     pub format: String,
-    
+
     /// Verbose output
     /// 详细输出
     #[arg(short, long)]
@@ -183,7 +190,7 @@ pub struct InfoArgs {
     /// 要检查的加密文件
     #[arg(short, long, value_name = "FILE")]
     pub input: PathBuf,
-    
+
     /// Verbose output
     /// 详细输出
     #[arg(short, long)]
@@ -196,9 +203,10 @@ pub fn parse_args() -> Cli {
     Cli::parse()
 }
 
-use crate::key_manager::SecureString;
 use crate::error::{CryptoError, Result};
-use std::io::{self, Write};
+use crate::key_manager::SecureString;
+use std::io::{self, IsTerminal, Write};
+use std::time::{Duration, Instant};
 
 /// Prompt the user for a password securely
 /// 安全地提示用户输入密码
@@ -214,26 +222,24 @@ use std::io::{self, Write};
 /// A SecureString containing the password / 包含密码的 SecureString
 pub fn prompt_password(prompt: &str) -> Result<SecureString> {
     print!("{}", prompt);
-    io::stdout().flush()
-        .map_err(|e| {
-            let msg = if i18n::is_zh() {
-                format!("刷新标准输出失败：{}", e)
-            } else {
-                format!("Failed to flush stdout: {}", e)
-            };
-            CryptoError::SystemError(msg)
-        })?;
-    
-    let password = rpassword::read_password()
-        .map_err(|e| {
-            let msg = if i18n::is_zh() {
-                format!("读取密码失败：{}", e)
-            } else {
-                format!("Failed to read password: {}", e)
-            };
-            CryptoError::SystemError(msg)
-        })?;
-    
+    io::stdout().flush().map_err(|e| {
+        let msg = if i18n::is_zh() {
+            format!("刷新标准输出失败：{}", e)
+        } else {
+            format!("Failed to flush stdout: {}", e)
+        };
+        CryptoError::SystemError(msg)
+    })?;
+
+    let password = rpassword::read_password().map_err(|e| {
+        let msg = if i18n::is_zh() {
+            format!("读取密码失败：{}", e)
+        } else {
+            format!("Failed to read password: {}", e)
+        };
+        CryptoError::SystemError(msg)
+    })?;
+
     Ok(SecureString::from(password))
 }
 
@@ -256,11 +262,11 @@ pub fn prompt_password_with_confirmation(
 ) -> Result<SecureString> {
     let password = prompt_password(prompt)?;
     let confirm = prompt_password(confirm_prompt)?;
-    
+
     if password.as_str() != confirm.as_str() {
         return Err(CryptoError::InvalidPassword);
     }
-    
+
     Ok(password)
 }
 
@@ -283,23 +289,22 @@ use std::env;
 /// # Returns / 返回值
 /// A SecureString containing the password / 包含密码的 SecureString
 pub fn read_password_from_env(var_name: &str) -> Result<SecureString> {
-    let password = env::var(var_name)
-        .map_err(|_| {
-            let msg = if i18n::is_zh() {
-                format!("未找到环境变量 {}", var_name)
-            } else {
-                format!("Environment variable {} not found", var_name)
-            };
-            CryptoError::MissingRequiredArgument(msg)
-        })?;
-    
+    let password = env::var(var_name).map_err(|_| {
+        let msg = if i18n::is_zh() {
+            format!("未找到环境变量 {}", var_name)
+        } else {
+            format!("Environment variable {} not found", var_name)
+        };
+        CryptoError::MissingRequiredArgument(msg)
+    })?;
+
     if password.is_empty() {
         return Err(CryptoError::InvalidPassword);
     }
-    
+
     // Note: We cannot reliably clear the environment variable across all platforms
     // Users should be aware that the password remains in the environment
-    
+
     Ok(SecureString::from(password))
 }
 
@@ -319,21 +324,20 @@ use std::fs;
 /// # Returns / 返回值
 /// A SecureBytes containing the key material / 包含密钥材料的 SecureBytes
 pub fn load_key_from_file(path: &PathBuf) -> Result<SecureBytes> {
-    let key_bytes = fs::read(path)
-        .map_err(|e| {
-            if e.kind() == io::ErrorKind::NotFound {
-                CryptoError::FileNotFound(path.clone())
-            } else if e.kind() == io::ErrorKind::PermissionDenied {
-                CryptoError::PermissionDenied(path.clone())
-            } else {
-                CryptoError::FileReadError(path.clone(), e)
-            }
-        })?;
-    
+    let key_bytes = fs::read(path).map_err(|e| {
+        if e.kind() == io::ErrorKind::NotFound {
+            CryptoError::FileNotFound(path.clone())
+        } else if e.kind() == io::ErrorKind::PermissionDenied {
+            CryptoError::PermissionDenied(path.clone())
+        } else {
+            CryptoError::FileReadError(path.clone(), e)
+        }
+    })?;
+
     if key_bytes.is_empty() {
         return Err(CryptoError::InvalidKey);
     }
-    
+
     Ok(SecureBytes::from(key_bytes))
 }
 
@@ -351,53 +355,53 @@ pub fn load_key_from_file(path: &PathBuf) -> Result<SecureBytes> {
 /// # Returns / 返回值
 /// A SecureBytes containing the DER-encoded key material / 包含 DER 编码密钥材料的 SecureBytes
 pub fn load_pem_key_from_file(path: &PathBuf) -> Result<SecureBytes> {
-    let pem_content = fs::read_to_string(path)
-        .map_err(|e| {
-            if e.kind() == io::ErrorKind::NotFound {
-                CryptoError::FileNotFound(path.clone())
-            } else if e.kind() == io::ErrorKind::PermissionDenied {
-                CryptoError::PermissionDenied(path.clone())
-            } else {
-                CryptoError::FileReadError(path.clone(), e)
-            }
-        })?;
-    
+    let pem_content = fs::read_to_string(path).map_err(|e| {
+        if e.kind() == io::ErrorKind::NotFound {
+            CryptoError::FileNotFound(path.clone())
+        } else if e.kind() == io::ErrorKind::PermissionDenied {
+            CryptoError::PermissionDenied(path.clone())
+        } else {
+            CryptoError::FileReadError(path.clone(), e)
+        }
+    })?;
+
     // Parse PEM format - look for BEGIN/END markers
     let begin_marker = "-----BEGIN";
     let end_marker = "-----END";
-    
-    let begin_pos = pem_content.find(begin_marker)
+
+    let begin_pos = pem_content
+        .find(begin_marker)
         .ok_or(CryptoError::InvalidKey)?;
-    let end_pos = pem_content.find(end_marker)
+    let end_pos = pem_content
+        .find(end_marker)
         .ok_or(CryptoError::InvalidKey)?;
-    
+
     // Extract the base64 content between markers
-    let first_newline = pem_content[begin_pos..].find('\n')
+    let first_newline = pem_content[begin_pos..]
+        .find('\n')
         .ok_or(CryptoError::InvalidKey)?;
     let base64_start = begin_pos + first_newline + 1;
-    
+
     if base64_start >= end_pos {
         return Err(CryptoError::InvalidKey);
     }
-    
+
     let base64_content = &pem_content[base64_start..end_pos];
-    
+
     // Remove whitespace and decode base64
     let base64_clean: String = base64_content
         .chars()
         .filter(|c| !c.is_whitespace())
         .collect();
-    
+
     // Decode base64
-    use base64::{Engine as _, engine::general_purpose};
+    use base64::{engine::general_purpose, Engine as _};
     let der_bytes = general_purpose::STANDARD
         .decode(base64_clean.as_bytes())
         .map_err(|_| CryptoError::InvalidKey)?;
-    
+
     Ok(SecureBytes::from(der_bytes))
 }
-
-
 
 /// Display a progress bar for file operations
 /// 显示文件操作的进度条
@@ -409,20 +413,20 @@ pub fn display_progress(current: u64, total: u64) {
     if total == 0 {
         return;
     }
-    
+
     let percentage = (current as f64 / total as f64 * 100.0) as u32;
     let bar_width = 50;
     let filled = (current as f64 / total as f64 * bar_width as f64) as usize;
     let empty = bar_width - filled;
-    
+
     print!("\r[");
     print!("{}", "=".repeat(filled));
     print!("{}", " ".repeat(empty));
     let unit = i18n::t("bytes", "字节");
     print!("] {}% ({}/{} {})", percentage, current, total, unit);
-    
+
     io::stdout().flush().ok();
-    
+
     if current >= total {
         println!(); // New line when complete
     }
@@ -438,6 +442,78 @@ pub fn display_progress(current: u64, total: u64) {
 pub fn display_file_progress(file_path: &PathBuf, current: usize, total: usize) {
     let label = i18n::t("Processing", "正在处理");
     println!("[{}/{}] {}: {}", current, total, label, file_path.display());
+}
+
+pub fn should_show_progress() -> bool {
+    io::stderr().is_terminal() && std::env::var_os("CI").is_none()
+}
+
+pub struct ProgressBar {
+    last_draw: Instant,
+    min_interval: Duration,
+    complete: bool,
+}
+
+impl ProgressBar {
+    pub fn new(label: String) -> Self {
+        eprintln!("{}", label);
+        Self {
+            last_draw: Instant::now() - Duration::from_millis(100),
+            min_interval: Duration::from_millis(100),
+            complete: false,
+        }
+    }
+
+    pub fn update(&mut self, current: u64, total: u64) {
+        let now = Instant::now();
+        let done = total == 0 || current >= total;
+        if !done && now.duration_since(self.last_draw) < self.min_interval {
+            return;
+        }
+
+        self.last_draw = now;
+        let ratio = if total == 0 {
+            1.0
+        } else {
+            (current as f64 / total as f64).clamp(0.0, 1.0)
+        };
+        let percent = (ratio * 100.0).round() as u64;
+        let bar_width = 50usize;
+        let filled = (ratio * bar_width as f64).round() as usize;
+        let unit = i18n::t("bytes", "字节");
+
+        eprint!(
+            "\r[{}{}] {}% ({}/{} {})",
+            "=".repeat(filled),
+            " ".repeat(bar_width.saturating_sub(filled)),
+            percent,
+            current.min(total),
+            total,
+            unit
+        );
+        let _ = io::stderr().flush();
+
+        if done && !self.complete {
+            eprintln!();
+            self.complete = true;
+        }
+    }
+
+    pub fn finish(&mut self) {
+        if !self.complete {
+            eprintln!();
+            self.complete = true;
+        }
+    }
+}
+
+impl Drop for ProgressBar {
+    fn drop(&mut self) {
+        if !self.complete {
+            eprintln!();
+            let _ = io::stderr().flush();
+        }
+    }
 }
 
 /// Print verbose log message
