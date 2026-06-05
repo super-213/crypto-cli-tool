@@ -10,14 +10,20 @@ use crate::i18n;
 #[derive(Parser, Debug)]
 #[command(name = "crypto-cli-tool")]
 #[command(author, version, about, long_about = None)]
+#[command(arg_required_else_help = true)]
 pub struct Cli {
     /// Output language (en or zh)
     /// 输出语言（en 或 zh）
     #[arg(long, short = 'l', value_name = "LANG", default_value = "en", global = true, allow_hyphen_values = true)]
     pub language: String,
 
+    /// Start interactive encryption/decryption wizard
+    /// 启动交互式加密/解密向导
+    #[arg(short = 'w', long, global = true)]
+    pub wizard: bool,
+
     #[command(subcommand)]
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 /// Available subcommands
@@ -46,8 +52,12 @@ pub enum Command {
     
     /// Display information about an encrypted file
     /// 显示加密文件的信息
-    #[command(aliases = ["i", "info"])]
+    #[command(aliases = ["i"])]
     Info(InfoArgs),
+
+    /// Start interactive encryption/decryption wizard
+    /// 启动交互式加密/解密向导
+    Wizard,
 }
 
 /// Arguments for the encrypt command

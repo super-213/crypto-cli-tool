@@ -11,6 +11,7 @@ pub mod crypto;
 pub mod error;
 pub mod file_handler;
 pub mod i18n;
+pub mod interactive;
 pub mod key_manager;
 
 // Re-export commonly used types

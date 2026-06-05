@@ -28,10 +28,20 @@ fn main() {
     // Create application with default configuration
     // 使用默认配置创建应用程序
     let application = app::Application::new();
+
+    let result = if cli_args.wizard {
+        application.run_interactive_wizard()
+    } else if let Some(command) = cli_args.command {
+        application.execute(command)
+    } else {
+        Err(CryptoError::MissingRequiredArgument(
+            i18n::t("missing command", "缺少命令").to_string(),
+        ))
+    };
     
     // Execute the command and handle errors
     // 执行命令并处理错误
-    if let Err(e) = application.execute(cli_args.command) {
+    if let Err(e) = result {
         // Print error message to stderr
         // 将错误消息打印到 stderr
         cli::print_error(&format!("{}", e));

@@ -212,7 +212,81 @@ impl Application {
             Command::Keygen(args) => self.handle_keygen(args),
             Command::ListAlgorithms => self.handle_list_algorithms(),
             Command::Info(args) => self.handle_info(args),
+            Command::Wizard => self.run_interactive_wizard(),
         }
+    }
+
+    /// Run the interactive encryption/decryption wizard.
+    /// 运行交互式加密/解密向导。
+    pub fn run_interactive_wizard(&self) -> Result<()> {
+        crate::interactive::run(self)
+    }
+
+    /// Encrypt a file or directory with an already prepared key.
+    /// 使用已准备好的密钥加密文件或目录。
+    pub fn encrypt_with_key(
+        &self,
+        input_path: &Path,
+        output_path: &Path,
+        key: &SecureBytes,
+        algorithm: FileAlgorithm,
+        compression: Option<CompressionAlgorithm>,
+        kdf_params: Option<(KdfAlgorithm, u32, Vec<u8>)>,
+        recursive: bool,
+    ) -> Result<()> {
+        if input_path.is_file() {
+            self.encrypt_file(input_path, output_path, key, algorithm, compression, kdf_params)
+        } else if input_path.is_dir() {
+            if !recursive {
+                let msg = if i18n::is_zh() {
+                    "输入路径是目录，需要启用递归目录加密".to_string()
+                } else {
+                    "Input path is a directory; recursive directory encryption is required".to_string()
+                };
+                Err(CryptoError::InvalidArguments(msg))
+            } else {
+                self.encrypt_directory(input_path, output_path, key, algorithm, compression, kdf_params)
+            }
+        } else {
+            Err(CryptoError::FileNotFound(input_path.to_path_buf()))
+        }
+    }
+
+    /// Decrypt a file with an already prepared key and extract directory archives when detected.
+    /// 使用已准备好的密钥解密文件，并在检测到目录归档时自动解包。
+    pub fn decrypt_with_key(
+        &self,
+        input_path: &Path,
+        output_path: &Path,
+        key: &SecureBytes,
+    ) -> Result<()> {
+        use crate::file_handler;
+
+        let temp_decrypted = std::env::temp_dir().join(format!(
+            "crypto_cli_decrypted_{}.tmp",
+            std::process::id()
+        ));
+
+        let result = (|| {
+            file_handler::decrypt_file(input_path, &temp_decrypted, key)?;
+
+            let decrypted_data = std::fs::read(&temp_decrypted)
+                .map_err(|e| CryptoError::FileReadError(temp_decrypted.clone(), e))?;
+
+            let is_archive = decrypted_data.len() >= 6 && &decrypted_data[0..6] == b"CRYTAR";
+            if is_archive {
+                use crate::archive;
+                archive::extract_archive(&decrypted_data, output_path)?;
+            } else {
+                std::fs::rename(&temp_decrypted, output_path)
+                    .map_err(|e| CryptoError::FileWriteError(output_path.to_path_buf(), e))?;
+            }
+
+            Ok(())
+        })();
+
+        let _ = std::fs::remove_file(&temp_decrypted);
+        result
     }
     
     /// Handle the encrypt command
